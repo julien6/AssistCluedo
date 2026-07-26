@@ -1,0 +1,143 @@
+id: classic_manor
+version: "0.2"
+title: Death at Blackwood Manor
+setting_name: Blackwood Manor
+characters:
+  - id: general
+    name: General Hargreaves
+    public_role: retired general
+    capabilities: [move, speak, use_phone, command_staff, access_office, access_all_rooms]
+  - id: head_chef
+    name: Marta Bell
+    public_role: head chef
+    capabilities: [move, speak, use_phone, access_service_rooms]
+  - id: butler
+    name: Simon Vale
+    public_role: butler
+    capabilities: [move, speak, use_phone, access_all_rooms]
+  - id: doctor
+    name: Dr. Elaine Cross
+    public_role: family doctor
+    capabilities: [move, speak, use_phone, medical_assessment]
+  - id: niece
+    name: Clara Hargreaves
+    public_role: niece
+    capabilities: [move, speak, use_phone]
+  - id: gardener
+    name: Noah Reed
+    public_role: gardener
+    capabilities: [move, speak, use_phone, access_grounds]
+  - id: secretary
+    name: Evelyn Marsh
+    public_role: private secretary
+    capabilities: [move, speak, use_phone, access_office]
+  - id: chauffeur
+    name: Julian Price
+    public_role: chauffeur
+    capabilities: [move, speak, use_phone, access_garage]
+  - id: housekeeper
+    name: Iris Quinn
+    public_role: housekeeper
+    capabilities: [move, speak, use_phone, access_service_rooms]
+  - id: colonel
+    name: Colonel Ames
+    public_role: old army friend
+    capabilities: [move, speak, use_phone]
+locations:
+  - id: entrance_hall
+    name: Entrance Hall
+    location_type: hall
+    access: public
+  - id: kitchen
+    name: Kitchen
+    location_type: service
+    access: service
+  - id: pantry
+    name: Pantry
+    location_type: service
+    access: service
+  - id: dining_room
+    name: Dining Room
+    location_type: public
+    access: public
+  - id: office
+    name: General's Office
+    location_type: private
+    access: office
+  - id: library
+    name: Library
+    location_type: public
+    access: public
+  - id: garage
+    name: Garage
+    location_type: service
+    access: garage
+  - id: garden
+    name: Garden
+    location_type: grounds
+    access: grounds
+  - id: conservatory
+    name: Conservatory
+    location_type: public
+    access: public
+  - id: servants_hall
+    name: Servants' Hall
+    location_type: service
+    access: service
+objects:
+  - id: kitchen_knife
+    name: Kitchen knife
+    object_type: knife
+    location_id: kitchen
+  - id: letter_opener
+    name: Letter opener
+    object_type: blade
+    location_id: office
+  - id: brass_candlestick
+    name: Brass candlestick
+    object_type: blunt object
+    location_id: dining_room
+  - id: pruning_shears
+    name: Pruning shears
+    object_type: blade
+    location_id: garden
+  - id: fireplace_poker
+    name: Fireplace poker
+    object_type: blunt object
+    location_id: library
+  - id: service_revolver
+    name: Service revolver
+    object_type: firearm
+    location_id: office
+motives:
+  - blackmail over forged household accounts
+  - revenge for a ruined military career
+  - inheritance pressure after a changed will
+  - fear that a private medical fraud would be exposed
+  - anger over a dismissed staff pension
+  - panic after the general found a stolen heirloom
+document_titles:
+  sms: Recovered SMS Extract
+  access-control log: Access-Control Log
+  security report: Security Report
+  witness interview: Witness Interview
+  personal note: Personal Note
+  autopsy report: Autopsy Report
+  inventory report: Inventory Report
+  email: Recovered Email
+  gps report: Phone Location Report
+  receipt: Purchase Receipt
+  call log: Telephone Log
+  newspaper clipping: Local Newspaper Clipping
+travel_edges:
+  - [entrance_hall, dining_room, 1]
+  - [entrance_hall, library, 2]
+  - [entrance_hall, office, 2]
+  - [entrance_hall, conservatory, 3]
+  - [dining_room, kitchen, 2]
+  - [kitchen, pantry, 1]
+  - [kitchen, servants_hall, 2]
+  - [servants_hall, garage, 3]
+  - [conservatory, garden, 2]
+  - [library, office, 2]
+  - [garage, garden, 4]
