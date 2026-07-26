@@ -8,6 +8,7 @@ from assistcluedo.framework.models import GeneratedDocument, Scenario
 from assistcluedo.framework.pack import load_pack
 from assistcluedo.framework.seed import rng_for
 from assistcluedo.framework.serialization import read_json, write_json, write_yaml
+from assistcluedo.framework.textgen import generator_for
 from assistcluedo.framework.validation import validate_scenario
 from assistcluedo.game.player_package import build_player_package, player_introduction_for
 
@@ -71,11 +72,16 @@ def load_exported_scenario(path: Path) -> Scenario:
     return Scenario.from_dict(read_json(path / "scenario.json"))
 
 
-def regenerate_documents(path: Path, provider: str = "template") -> Scenario:
-    if provider != "template":
-        raise ValueError("Only the deterministic template provider is available.")
+def regenerate_documents(
+    path: Path,
+    provider: str = "local-llm",
+    fallback: str = "template",
+    max_attempts: int = 1,
+    model: str = "gpt-5-mini",
+) -> Scenario:
     scenario = load_exported_scenario(path)
     pack = load_pack(scenario.pack_id)
+    text_generator = generator_for(provider, fallback=fallback, max_attempts=max_attempts, model=model)
     documents = DocumentRenderer().generate(
         scenario.seed,
         scenario.world,
@@ -84,6 +90,7 @@ def regenerate_documents(path: Path, provider: str = "template") -> Scenario:
         scenario.traces,
         scenario.document_plans,
         pack,
+        text_generator=text_generator,
     )
     regenerated = replace(scenario, documents=_shuffle_documents(scenario.seed, documents))
     export_scenario(regenerated, path)

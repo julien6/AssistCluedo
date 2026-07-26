@@ -28,6 +28,13 @@ from assistcluedo.framework.proof import ProofGraphBuilder
 from assistcluedo.framework.questions import QuestionGenerator
 from assistcluedo.framework.scenario import ScenarioGenerator
 from assistcluedo.framework.seed import derive_seed, derive_seeds
+from assistcluedo.framework.textgen import (
+    FallbackTextGenerator,
+    SourceStyleCatalog,
+    TemplateTextGenerator,
+    TextGenerationRequest,
+    TextGenerationResult,
+)
 from assistcluedo.framework.timeline import FactEngine, TimelineEngine
 from assistcluedo.framework.traces import TraceGenerator
 from assistcluedo.framework.validation import (
@@ -310,6 +317,61 @@ def test_named_document_and_question_validators_are_reusable() -> None:
     scenario = generate_symbolic_scenario(42)
     assert DocumentValidator().validate(scenario.documents, scenario) == []
     assert QuestionValidator().validate(scenario.questions, scenario) == []
+
+
+def test_template_documents_use_source_specific_realistic_formats() -> None:
+    scenario = generate_symbolic_scenario(42)
+    sms = next(document for document in scenario.documents if document.visible_metadata["type"] == "sms")
+    access_log = next(
+        document for document in scenario.documents if document.visible_metadata["type"] == "access-control log"
+    )
+    assert "From:" in sms.text
+    assert "To:" in sms.text
+    assert "Same quiet place as before" in sms.text
+    assert "timestamp | credential | door | result" in access_log.text
+    assert "granted" in access_log.text
+    assert sms.visible_metadata["text_provider"] == "template"
+    assert sms.visible_metadata["fallback_used"] is True
+
+
+def test_document_plans_include_source_context_for_text_generation() -> None:
+    scenario = generate_symbolic_scenario(42)
+    sms_plan = next(plan for plan in scenario.document_plans if plan.document_type == "sms")
+    interview_plan = next(plan for plan in scenario.document_plans if plan.document_type == "witness interview")
+    assert sms_plan.source_system_id == "mobile phone extraction"
+    assert sms_plan.style["tone"] == "tense and elliptical"
+    assert interview_plan.style["register"] == "spoken transcript"
+
+
+def test_text_generator_fallback_rejects_invalid_primary_output() -> None:
+    class InvalidGenerator:
+        def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
+            return TextGenerationResult(
+                title="Invalid",
+                text="This omits facts.",
+                facts_expressed=[],
+                entities_mentioned=[],
+                provider="invalid",
+            )
+
+    scenario = generate_symbolic_scenario(42)
+    plan = scenario.document_plans[0]
+    trace = next(trace for trace in scenario.traces if trace.id == plan.source_trace_ids[0])
+    facts = [fact for fact in scenario.facts if fact.id in plan.mandatory_fact_ids]
+    request = TextGenerationRequest(
+        document_id="doc_test",
+        title="Test",
+        plan=plan,
+        trace=trace,
+        world=scenario.world,
+        truth=scenario.ground_truth,
+        facts=facts,
+        created_at=scenario.ground_truth.incident_time.isoformat(),
+        source_style=SourceStyleCatalog().profile_for(plan.document_type),
+    )
+    result = FallbackTextGenerator(InvalidGenerator(), TemplateTextGenerator()).generate(request)
+    assert result.provider == "template"
+    assert result.fallback_used is True
 
 
 def test_document_validator_checks_metadata_and_creation_time() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -325,14 +326,142 @@ def test_cli_framework_regenerate_documents_rejects_unknown_provider(tmp_path: P
             "regenerate-documents",
             str(tmp_path),
             "--provider",
-            "openai",
+            "unknown",
         ],
         check=False,
         capture_output=True,
         text=True,
     )
     assert result.returncode == 1
-    assert "Only the deterministic template provider" in result.stderr
+    assert "Unknown text generation provider" in result.stderr
+
+
+def test_cli_framework_regenerate_documents_supports_mock_provider(tmp_path: Path) -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "assistcluedo",
+            "framework",
+            "generate",
+            "--seed",
+            "42",
+            "--output",
+            str(tmp_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "assistcluedo",
+            "framework",
+            "regenerate-documents",
+            str(tmp_path),
+            "--provider",
+            "mock",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    scenario = json.loads((tmp_path / "scenario.json").read_text(encoding="utf-8"))
+    assert scenario["documents"][0]["visible_metadata"]["text_provider"] == "mock"
+
+
+def test_cli_framework_regenerate_documents_supports_local_llm_provider(tmp_path: Path) -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "assistcluedo",
+            "framework",
+            "generate",
+            "--seed",
+            "42",
+            "--output",
+            str(tmp_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    script = tmp_path / "local_llm.py"
+    script.write_text(
+        """import json, sys
+request = json.loads(sys.stdin.read())
+json.dump({
+  'title': request['title'],
+  'text': 'local llm styled document for ' + request['document_id'],
+  'facts_expressed': request['mandatory_fact_ids'],
+  'entities_mentioned': [],
+}, sys.stdout)
+""",
+        encoding="utf-8",
+    )
+    env = {**os.environ, "ASSISTCLUEDO_LOCAL_LLM_COMMAND": f"{sys.executable} {script}"}
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "assistcluedo",
+            "framework",
+            "regenerate-documents",
+            str(tmp_path),
+            "--provider",
+            "local-llm",
+            "--fallback",
+            "template",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    scenario = json.loads((tmp_path / "scenario.json").read_text(encoding="utf-8"))
+    assert scenario["documents"][0]["visible_metadata"]["text_provider"] == "local-llm"
+
+
+def test_cli_framework_generate_uses_local_llm_by_default_when_configured(tmp_path: Path) -> None:
+    script = tmp_path / "local_llm.py"
+    script.write_text(
+        """import json, sys
+request = json.loads(sys.stdin.read())
+json.dump({
+  'title': request['title'],
+  'text': 'qwen-style local default for ' + request['document_id'],
+  'facts_expressed': request['mandatory_fact_ids'],
+  'entities_mentioned': [],
+}, sys.stdout)
+""",
+        encoding="utf-8",
+    )
+    env = {**os.environ, "ASSISTCLUEDO_LOCAL_LLM_COMMAND": f"{sys.executable} {script}"}
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "assistcluedo",
+            "framework",
+            "generate",
+            "--seed",
+            "42",
+            "--difficulty",
+            "easy",
+            "--output",
+            str(tmp_path / "run"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    scenario = json.loads((tmp_path / "run" / "scenario.json").read_text(encoding="utf-8"))
+    assert scenario["documents"][0]["visible_metadata"]["text_provider"] == "local-llm"
+    assert scenario["documents"][0]["visible_metadata"]["fallback_used"] is False
 
 
 def test_cli_framework_audit_reports_definition_of_done(tmp_path: Path) -> None:

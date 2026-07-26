@@ -47,7 +47,11 @@ def audit_framework_export(path: Path) -> AuditReport:
     player_document_ids = _player_document_ids(path)
     items = [
         AuditItem("F1", bool(scenario.world.characters and scenario.world.locations), "world generated from master seed"),
-        AuditItem("F2", regenerated.to_dict() == scenario.to_dict(), "same seed/config reproduces scenario"),
+        AuditItem(
+            "F2",
+            _stable_symbolic_snapshot(regenerated) == _stable_symbolic_snapshot(scenario),
+            "same seed/config reproduces symbolic scenario; text rendering may vary by provider",
+        ),
         AuditItem("F3", scenario_report.ok, scenario_report.summary()),
         AuditItem("F4", _all_traces_have_events(scenario), f"traces={len(scenario.traces)}"),
         AuditItem("F5", _all_documents_have_plans(scenario), f"documents={len(scenario.documents)}"),
@@ -88,6 +92,22 @@ def audit_game_export(path: Path) -> AuditReport:
 def _all_traces_have_events(scenario: Any) -> bool:
     event_ids = {event.id for event in scenario.events}
     return all(trace.source_event_ids and set(trace.source_event_ids) <= event_ids for trace in scenario.traces)
+
+
+def _stable_symbolic_snapshot(scenario: Any) -> dict[str, object]:
+    data = scenario.to_dict()
+    data["documents"] = [
+        {
+            "id": document["id"],
+            "plan_id": document["plan_id"],
+            "extracted_fact_ids": document["extracted_fact_ids"],
+            "type": document["visible_metadata"].get("type"),
+            "source": document["visible_metadata"].get("source"),
+            "created_at": document["visible_metadata"].get("created_at"),
+        }
+        for document in data["documents"]
+    ]
+    return data
 
 
 def _all_documents_have_plans(scenario: Any) -> bool:

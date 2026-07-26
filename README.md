@@ -16,7 +16,9 @@ python -m assistcluedo version
 python -m assistcluedo framework validate-config
 python -m assistcluedo framework generate --seed 42 --difficulty spark --output runs/scenario_42_spark
 python -m assistcluedo framework inspect runs/scenario_42_spark
+python -m assistcluedo framework regenerate-documents runs/scenario_42_spark
 python -m assistcluedo framework regenerate-documents runs/scenario_42_spark --provider template
+python -m assistcluedo framework regenerate-documents runs/scenario_42_spark --provider openai --fallback template --max-attempts 3
 python -m assistcluedo framework audit runs/scenario_42_spark
 python -m assistcluedo framework stress --start-seed 1 --count 500 --difficulty spark
 python -m assistcluedo game play runs/scenario_42_spark
@@ -53,8 +55,26 @@ with deterministic fallback edges for selected subgraphs. Validation checks that
 that localized character events respect shortest-path travel time, and that actors can access locations
 and weapon locations according to their capabilities. Player-facing exports are produced from an
 in-memory `PlayerPackage` model rather than ad hoc filtered oracle objects.
-Document validation also checks visible metadata, plan/trace truth-mode alignment, mandatory and
-forbidden facts, and document creation timestamps against the facts they express.
+Document rendering is routed through a `TextGenerator` abstraction. The default provider is `local-llm` with
+`template` fallback, so a local model such as Qwen is used automatically when
+`ASSISTCLUEDO_LOCAL_LLM_COMMAND` is configured. If no local command is configured, or if the model returns
+invalid JSON, deterministic source-specific templates keep generation usable. The template provider covers
+SMS messages, emails, access logs, witness interviews, autopsy notes, security reports, personal notes,
+inventory reports, and contextual records.
+
+LLM providers must return structured JSON and are validated before any text enters the scenario. Document
+validation checks visible metadata, text provider/fallback markers, plan/trace truth-mode alignment, mandatory
+and forbidden facts, and document creation timestamps against the facts they express. LLM providers are style
+engines only: symbolic facts, answers, proof paths, and truth modes remain controlled by the framework.
+
+For `local-llm`, set `ASSISTCLUEDO_LOCAL_LLM_COMMAND` to a command that reads the JSON prompt on stdin and
+returns the structured JSON document on stdout. For example, point it to a wrapper around Qwen through Ollama,
+llama.cpp, or vLLM:
+
+```bash
+export ASSISTCLUEDO_LOCAL_LLM_COMMAND="python scripts/qwen_textgen.py"
+python -m assistcluedo framework generate --seed 42 --output runs/scenario_42
+```
 
 The terminal game layer is split into testable services matching the roadmap responsibilities:
 `CasePresentationService`, `DocumentBrowser`, `PlayerNotebook`, `QuizController`,

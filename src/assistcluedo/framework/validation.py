@@ -92,12 +92,16 @@ def _validate_document_metadata(
     issues: list[ValidationIssue],
 ) -> None:
     metadata = document.visible_metadata
-    required_keys = {"type", "reliability", "source", "created_at"}
+    required_keys = {"type", "reliability", "source", "created_at", "text_provider", "fallback_used"}
     missing = sorted(required_keys - set(metadata))
     if missing:
         issues.append(ValidationIssue("document_metadata_missing", f"{document.id} missing metadata: {missing}"))
     if metadata.get("type") != plan.document_type:
         issues.append(ValidationIssue("document_type_mismatch", f"{document.id} type does not match {plan.id}"))
+    if not isinstance(metadata.get("text_provider"), str):
+        issues.append(ValidationIssue("document_missing_text_provider", f"{document.id} has no text provider"))
+    if not isinstance(metadata.get("fallback_used"), bool):
+        issues.append(ValidationIssue("document_invalid_fallback_flag", f"{document.id} has invalid fallback flag"))
     source_traces = [traces_by_id[trace_id] for trace_id in plan.source_trace_ids if trace_id in traces_by_id]
     if source_traces:
         reliability = metadata.get("reliability")

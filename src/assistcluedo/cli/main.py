@@ -51,7 +51,10 @@ def main() -> None:
     inspect_oracle.add_argument("path", type=Path)
     regenerate_documents_parser = framework_sub.add_parser("regenerate-documents")
     regenerate_documents_parser.add_argument("path", type=Path)
-    regenerate_documents_parser.add_argument("--provider", default="template")
+    regenerate_documents_parser.add_argument("--provider", default="local-llm")
+    regenerate_documents_parser.add_argument("--fallback", default="template")
+    regenerate_documents_parser.add_argument("--max-attempts", type=int, default=1)
+    regenerate_documents_parser.add_argument("--model", default="gpt-5-mini")
 
     game = subparsers.add_parser("game")
     game_sub = game.add_subparsers(dest="game_command")
@@ -179,8 +182,14 @@ def _framework(args: argparse.Namespace) -> None:
         if not args.path.exists():
             raise SystemExit(f"{args.path} does not exist.")
         try:
-            scenario = regenerate_documents(args.path, provider=args.provider)
-        except ValueError as exc:
+            scenario = regenerate_documents(
+                args.path,
+                provider=args.provider,
+                fallback=args.fallback,
+                max_attempts=args.max_attempts,
+                model=args.model,
+            )
+        except (RuntimeError, ValueError) as exc:
             raise SystemExit(str(exc)) from exc
         print(
             f"Regenerated {len(scenario.documents)} documents in {args.path} "
