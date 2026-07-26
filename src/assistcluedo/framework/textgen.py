@@ -295,6 +295,8 @@ def _sms_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Rand
                 f"From: {sender}",
                 f"To: {recipient}",
                 f"Sent: {time}",
+                f"Device: {rng.choice(['kitchen charging shelf', 'hallway coat stand', 'guest-room night table'])}",
+                f"Extraction note: {rng.choice(['screen glass cracked at lower edge', 'message recovered from notification cache', 'thread muted after delivery'])}",
                 f"{opener} Not the dining room. Same quiet place as before. I need you to hear this from me.",
                 followup,
             ]
@@ -307,6 +309,7 @@ def _sms_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Rand
             return [
                 "Phone notification preview",
                 f"{time} - {sender}",
+                f"App: Messages | Focus mode: {rng.choice(['off', 'personal', 'sleep schedule disabled'])}",
                 "Hi - still in the house? Slip away before they notice. Same quiet place as before.",
                 preview_tail,
             ]
@@ -315,8 +318,10 @@ def _sms_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Rand
             f"{time}  {sender}: {rng.choice(['Hi.', 'You there?', 'Still inside?'])} Are you still in the house?",
             f"{time}  {recipient}: {rng.choice(['Yes.', 'For now.', 'Still here.'])} Dinner has turned into speeches.",
             f"{time}  {sender}: {rng.choice(['Good.', 'Keep your voice down.', 'Leave your glass if anyone asks.'])}",
+            f"{time}  {recipient}: {rng.choice(['People are still in the hall.', 'The coffee is only just being served.', 'Someone is at the piano again.'])}",
             f"{time}  {sender}: Then slip away before they notice. Not the dining room.",
             f"{time}  {sender}: Same quiet place as before. I need you to hear this from me.",
+            f"{time}  {recipient}: {rng.choice(['Fine.', 'Make it quick.', 'I am not waiting long.'])}",
         ]
     return _generic_lines(request, facts)
 
@@ -332,12 +337,14 @@ def _email_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Ra
                 f"To: {recipient}",
                 "Subject: Before this becomes a household matter",
                 f"Date: {request.created_at}",
+                f"X-Mailer: {rng.choice(['Blackwood webmail', 'OldMail 3.8', 'House office desktop'])}",
                 "",
                 f"{recipient},",
                 "",
                 f"I have kept quiet about {fact.object} because you asked me to.",
                 "That does not mean I accept the way you have left it.",
                 "I had to sit through dinner while everyone pretended nothing was hanging over us.",
+                "The lamps in the hall kept dipping every few minutes, which did not help my temper.",
                 "We need to settle this tonight, privately.",
                 "",
                 rng.choice(["Regards,", "Please answer this time,", "Enough silence,"]),
@@ -349,12 +356,14 @@ def _email_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Ra
                 f"To: {recipient}",
                 "Subject: Following up",
                 f"Date: {request.created_at}",
+                f"Message-ID: <followup-{request.document_id}@blackwood.local>",
                 "",
                 f"{recipient},",
                 "",
                 "I am following up because you did not answer me earlier.",
                 f"The matter is still {fact.object}, however carefully everyone avoids the words.",
                 "Your secretary said you had stepped away, but the house is not large enough for this much avoiding.",
+                "I can still hear people laughing downstairs, which makes this all the more absurd.",
                 "Please do not make me raise it where others can hear.",
                 "",
                 sender,
@@ -364,6 +373,7 @@ def _email_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Ra
             f"To: {recipient}",
             f"Subject: {rng.choice(['The matter you promised to settle', 'Tonight', 'A private word'])}",
             f"Date: {request.created_at}",
+            f"Draft saved: {rng.choice(['yes', 'no', 'autosave recovered'])}",
             "",
             f"{recipient},",
             "",
@@ -371,6 +381,7 @@ def _email_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Ra
             f"But I will not keep swallowing the consequences of {fact.object}.",
             "You know exactly who was hurt by that decision, even if you prefer to call it old business.",
             "I am tired of smiling over cold coffee while you change the subject.",
+            "The blue folder is still where you left it, which says enough.",
             "",
             "We should settle it before the house starts listening.",
             "",
@@ -384,12 +395,14 @@ def _access_log_lines(request: TextGenerationRequest, facts: dict[str, Fact], rn
         rows = [
             "Badge audit trail",
             f"controller={rng.choice(['AC-NORTH-02', 'AC-HALL-1', 'MANOR-EDGE'])} export=partial",
+            f"operator={rng.choice(['night desk', 'auto-export', 'E.M.'])} checksum={rng.choice(['ok', 'pending', 'manual'])}",
             "date_time | badge_id | zone | direction | status",
         ]
     else:
         rows = [
             "ACCESS CONTROL EXPORT",
             f"panel: {rng.choice(['west service rack', 'main hall controller', 'office subpanel'])}",
+            f"batch: {rng.choice(['A17', 'B04', 'K22'])} | clock drift: {rng.choice(['+00:12', '-00:04', '+00:00'])}",
             "timestamp | credential | door | result",
         ]
     for fact in request.facts:
@@ -398,10 +411,12 @@ def _access_log_lines(request: TextGenerationRequest, facts: dict[str, Fact], rn
                 rows.append(
                     f"{request.created_at} | badge:{fact.subject} | {entity_name(request.world, str(fact.object))} | IN | OK"
                 )
+                rows.append(f"{request.created_at} | badge:{fact.subject} | controller | latch-check | PASS")
             else:
                 rows.append(
                     f"{_time(fact)} | badge:{fact.subject} | {entity_name(request.world, str(fact.object))} | granted"
                 )
+                rows.append(f"{_time(fact)} | badge:{fact.subject} | controller heartbeat | accepted")
     return rows
 
 
@@ -410,6 +425,7 @@ def _witness_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: 
         "Witness interview transcript" if request.document_profile.id == "witness_qa_transcript" else "Investigator notes - witness statement",
         f"Recorded: {request.created_at}",
         f"Room note: {rng.choice(['clock audible in corridor', 'tea brought in midway', 'rain against south windows'])}.",
+        f"Transcript note: {rng.choice(['several pauses marked only where clear', 'witness asked twice for water', 'recorder placed near green lamp'])}.",
         "Detective: Please describe only what you personally observed.",
     ]
     for fact in request.facts:
@@ -424,6 +440,8 @@ def _witness_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: 
                 "Witness: Certain enough. I noticed because I had to step around them with a tray."
             )
             rows.append("Witness: I remember the tray because the spoon kept rattling.")
+            rows.append("Detective: Anything else about the room?")
+            rows.append(f"Witness: Only that {rng.choice(['the curtains were half drawn', 'someone had left a chair pulled out', 'the fire was nearly gone'])}.")
         elif fact.id == "fact_false_statement":
             rows.append(
                 f"Detective: Did {entity_name(request.world, fact.subject)} say where they went after dinner?"
@@ -438,6 +456,7 @@ def _witness_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: 
                 "Witness: Too firmly, if you ask me. Like the answer had been rehearsed."
             )
             rows.append("Witness: Sorry, that is how it sounded to me.")
+            rows.append("Detective: We will note that as your impression, not as a fact.")
         elif fact.id == "fact_witness_seen_culprit":
             rows.append(
                 f"Witness: I noticed {entity_name(request.world, fact.subject)} near the corridor outside {entity_name(request.world, request.truth.location_id)} at about {_time(fact)}."
@@ -449,6 +468,8 @@ def _witness_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: 
                 "Witness: Leaving, I think. They turned away when they saw me."
             )
             rows.append("Witness: The corridor lamp was flickering, so I would not swear to more than that.")
+            rows.append("Detective: Did anyone else pass?")
+            rows.append("Witness: I heard steps, but in that house there are always steps.")
     return rows if len(rows) > 2 else _generic_lines(request, facts)
 
 
@@ -456,15 +477,18 @@ def _autopsy_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: 
     rows = ["Preliminary autopsy note", "Examiner observations:"] if request.document_profile.id == "medical_examiner_note" else [
         "Forensic pathology worksheet",
         f"Logged: {request.created_at}",
-        "Findings:",
+            "Findings:",
     ]
+    rows.append(f"Case ref: {rng.choice(['PM-09-Blackwood', 'ME/BB/0810', 'BWM-prelim-4'])}")
     for fact in request.facts:
         if fact.id == "fact_death_window":
             rows.append(f"- Estimated death window: {fact.object}.")
             rows.append(f"- Body temperature note taken after instruments were recalibrated at {rng.choice(['08:04', '08:11', '08:18'])}.")
+            rows.append("- Stomach contents: light supper; no unusual odor recorded.")
         elif fact.id == "fact_murder_weapon":
             rows.append(f"- Wound pattern is consistent with a heavy object such as the {entity_name(request.world, str(fact.object))}.")
             rows.append(f"- Trace staining noted along one edge; photography reference {rng.choice(['IMG-17B', 'IMG-22C', 'IMG-31A'])}.")
+            rows.append("- No final toxicology conclusion in this preliminary excerpt.")
     rows.append("These findings describe physical consistency, not legal responsibility.")
     return rows
 
@@ -476,9 +500,14 @@ def _security_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng:
             f"Opened: {request.created_at}",
             "System: internal camera network",
             "Status notes:",
+            f"Priority: {rng.choice(['P2', 'routine overnight', 'review before breakfast'])}",
         ]
         if request.document_profile.id == "maintenance_ticket"
-        else ["Camera outage alert", "timestamp | camera zone | status | note"]
+        else [
+            "Camera outage alert",
+            f"alert id: {rng.choice(['CAM-771', 'VID-204', 'NVR-55'])}",
+            "timestamp | camera zone | status | note",
+        ]
     )
     for fact in request.facts:
         if fact.id == "fact_camera_disabled":
@@ -500,12 +529,14 @@ def _personal_note_lines(request: TextGenerationRequest, facts: dict[str, Fact],
         if request.document_profile.id == "private_diary_fragment"
         else "Torn note, pencil on small writing paper:"
     ]
+    rows.append(rng.choice(["The paper smells faintly of lavender drawer liner.", "Corner torn off; no signature visible.", "Written in a hurry, slanting down the page."]))
     for fact in request.facts:
         if fact.id == "fact_false_lead_argument":
             if request.document_profile.id == "door_note":
                 rows.append(f"I came by after hearing {entity_name(request.world, fact.subject)} with {entity_name(request.world, str(fact.object))}.")
                 rows.append("Too much shouting. Back later if the house calms down.")
                 rows.append(rng.choice(["Please do not leave the blue cup on my desk again.", "I put the spare pencil under the blotter.", "The hallway smells of polish tonight."]))
+                rows.append(rng.choice(["No one ever shuts that service door properly.", "Could not find the matches either.", "This house carries every word after dinner."]))
             else:
                 rows.append(
                     f"I heard {entity_name(request.world, fact.subject)} and {entity_name(request.world, str(fact.object))} start up again tonight."
@@ -513,6 +544,7 @@ def _personal_note_lines(request: TextGenerationRequest, facts: dict[str, Fact],
                 rows.append("I could hear the tight voices even with the service door closed.")
                 rows.append("It was money first, then pride, then one of those old promises nobody is meant to mention.")
                 rows.append(rng.choice(["My tea had gone cold by then.", "The little clock kept losing a minute.", "Someone left mud on the runner again."]))
+                rows.append(rng.choice(["I wish I had stayed in my room.", "The whole evening felt too polished.", "Even the silver smelled of polish and rain."]))
     return rows if len(rows) > 1 else _generic_lines(request, facts)
 
 
@@ -522,13 +554,16 @@ def _inventory_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng
         f"{setting_name} - household inventory exception sheet",
         f"Filed: {request.created_at}",
         f"Checked by: {rng.choice(['E.M.', 'night steward', 'house office'])}",
+        f"Cabinet note: {rng.choice(['left hinge stiff', 'top shelf relabelled', 'old tag book missing page 12'])}",
         "Item checks:",
     ]
     for fact in request.facts:
         if fact.id == "fact_weapon_initial_location":
             rows.append(f"- {entity_name(request.world, fact.subject)}: usual storage listed as {entity_name(request.world, str(fact.object))}. Shelf label slightly torn.")
+            rows.append(f"  Last routine count: {rng.choice(['initialled only', 'entered in pencil', 'checked before luncheon'])}.")
         elif fact.id == "fact_weapon_hidden":
             rows.append(f"- Recovery update: same item located in {entity_name(request.world, str(fact.object))}; not returned through normal storage. Tag string damp.")
+            rows.append("  No note found in the drawer with it.")
     return rows
 
 
@@ -536,6 +571,7 @@ def _gps_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Rand
     rows = [
         "Phone location export",
         f"provider batch: {rng.choice(['loc-cache-18', 'tower-merge-04', 'device-export-7'])}",
+        f"map precision: {rng.choice(['indoor estimate', 'low satellite visibility', 'wifi-assisted'])}",
         "timestamp | handset | estimated area | confidence | note",
     ]
     for fact in request.facts:
@@ -551,6 +587,7 @@ def _receipt_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: 
         "PETTY CASH RECEIPT" if request.document_profile.id == "petty_cash_receipt" else "Counterfoil slip",
         f"Printed: {request.created_at}",
         f"terminal: {rng.choice(['drawer-2', 'service desk', 'hall printer'])}",
+        f"paper roll: {rng.choice(['low', 'replaced after print', 'faint ink at top'])}",
         "line | description | location | clerk",
     ]
     for fact in request.facts:
@@ -565,6 +602,7 @@ def _call_log_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng:
     rows = [
         "Telephone exchange log",
         f"switchboard: {rng.choice(['manual desk', 'west closet', 'house exchange'])}",
+        f"operator note: {rng.choice(['line crackle intermittent', 'bell slow to return', 'ink ribbon faint'])}",
         "time | extension | party | route note | duration",
     ]
     for fact in request.facts:
@@ -579,6 +617,7 @@ def _newspaper_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng
     rows = [
         "Society column clipping" if request.document_profile.id == "society_column" else "Local news brief",
         f"Clipping filed: {request.created_at}",
+        f"Column note: {rng.choice(['page edge torn', 'ink transfer visible', 'clipped from late edition'])}",
     ]
     for fact in request.facts:
         if fact.id.startswith("fact_ev_ctx_"):

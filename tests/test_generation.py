@@ -70,7 +70,7 @@ def test_generation_is_deterministic_and_seed_sensitive() -> None:
     assert first.to_dict() == second.to_dict()
     assert first.to_dict() != other.to_dict()
     assert len(first.world.characters) == 6
-    assert len(first.documents) == 14
+    assert len(first.documents) == 22
     assert len(first.questions) == 6
 
 
@@ -107,6 +107,8 @@ def test_difficulty_scales_case_size() -> None:
     assert len(spark.events) > len(easy.events)
     assert len(spark.documents) > len(easy.documents)
     assert len(spark.questions) > len(easy.questions)
+    assert len(easy.documents) == 22
+    assert len(spark.documents) == 90
 
 
 def test_scenario_round_trip_without_information_loss() -> None:
@@ -435,6 +437,8 @@ def test_procedural_documents_include_harmless_realistic_texture() -> None:
     assert any(marker in by_type["call log"] for marker in ("switchboard:", "duration"))
     assert any(marker in by_type["receipt"] for marker in ("terminal:", "clerk"))
     assert any(marker in by_type["personal note"] for marker in ("tea", "clock", "mud", "blue cup", "pencil", "polish"))
+    average_lines = sum(len(document.text.splitlines()) for document in scenario.documents) / len(scenario.documents)
+    assert average_lines >= 5
 
 
 def test_text_generator_fallback_rejects_invalid_primary_output() -> None:
@@ -639,7 +643,12 @@ else:
 
 def test_document_validator_checks_metadata_and_creation_time() -> None:
     scenario = generate_symbolic_scenario(42)
-    document = scenario.documents[0]
+    facts_by_id = {fact.id: fact for fact in scenario.facts}
+    document = next(
+        document
+        for document in scenario.documents
+        if any(facts_by_id[fact_id].time is not None for fact_id in document.extracted_fact_ids)
+    )
     bad_metadata = dict(document.visible_metadata)
     bad_metadata.pop("created_at")
     bad_document = replace(document, visible_metadata=bad_metadata)

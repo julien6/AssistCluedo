@@ -32,10 +32,10 @@ python -m mypy src
 
 Difficulties:
 
-- `easy`: compact terminal case.
-- `medium`: more characters, locations, documents, and questions.
-- `hard`: denser evidence package.
-- `spark`: larger deterministic case intended for heavier local testing.
+- `easy`: terminal case with about 22 documents.
+- `medium`: expanded case with about 34 documents.
+- `hard`: dense evidence package with about 50 documents.
+- `spark`: larger deterministic case with about 90 documents, intended for heavier local testing.
 
 The TTY document browser supports document type filters, search, notes, bookmarks, MCQ submission, confidence ratings, scoring, and post-game solution review. Sessions retain answers, confidence ratings, and the list of documents opened before each MCQ answer, so `game review` can show the evidence context used during submission.
 Post-game explanations include the supporting documents, facts, timeline events, and a deterministic review of every MCQ choice so distractors are explained after the solution is revealed.
