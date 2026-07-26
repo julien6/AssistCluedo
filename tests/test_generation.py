@@ -427,6 +427,16 @@ def test_procedural_sms_fallback_has_multiple_realistic_variants() -> None:
     assert all("message asking for a private meeting" not in text for text in texts)
 
 
+def test_procedural_documents_include_harmless_realistic_texture() -> None:
+    scenario = generate_symbolic_scenario(70, difficulty="easy")
+    by_type = {document.visible_metadata["type"]: document.text for document in scenario.documents}
+    assert len(by_type["email"].splitlines()) >= 10
+    assert any(marker in by_type["email"] for marker in ("secretary", "dinner", "cold coffee", "house is not large"))
+    assert any(marker in by_type["call log"] for marker in ("switchboard:", "duration"))
+    assert any(marker in by_type["receipt"] for marker in ("terminal:", "clerk"))
+    assert any(marker in by_type["personal note"] for marker in ("tea", "clock", "mud", "blue cup", "pencil", "polish"))
+
+
 def test_text_generator_fallback_rejects_invalid_primary_output() -> None:
     class InvalidGenerator:
         def generate(self, request: TextGenerationRequest) -> TextGenerationResult:

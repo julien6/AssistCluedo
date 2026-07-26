@@ -72,7 +72,9 @@ Document text is driven by seeded documentary profiles rather than one fixed tem
 example, an `sms` may be a short exchange, a single exported SMS, or a phone notification preview; an `email`
 may be personal, internal, or a follow-up. The selected profile is exposed as visible document metadata under
 `source_profile`, and the LLM prompt receives the profile's structure, register, formatting conventions,
-realistic imperfections, plausible contents, and forbidden contents.
+realistic imperfections, plausible contents, and forbidden contents. Profiles also encourage harmless
+real-world texture such as reference numbers, clipped greetings, switchboard details, filing marks, ambient
+household details, and minor imperfections, while forbidding new clues or hidden conclusions.
 
 For `local-llm`, set `ASSISTCLUEDO_LOCAL_LLM_COMMAND` to a command that reads the JSON prompt on stdin and
 returns the structured JSON document on stdout. For example, point it to a wrapper around Qwen through Ollama,
