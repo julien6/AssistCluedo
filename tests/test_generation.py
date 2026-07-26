@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -17,6 +18,12 @@ from assistcluedo.framework.api import (
     generate_traces,
     generate_world,
     validate_generated_scenario,
+)
+from assistcluedo.framework.contentgen import (
+    FallbackContentGenerator,
+    ProceduralContentGenerator,
+    ScenarioTextResult,
+    WorldContentResult,
 )
 from assistcluedo.framework.difficulty import get_difficulty
 from assistcluedo.framework.documents import DocumentPlanner, DocumentRenderer
@@ -64,6 +71,31 @@ def test_generation_is_deterministic_and_seed_sensitive() -> None:
     assert len(first.world.characters) == 6
     assert len(first.documents) == 14
     assert len(first.questions) == 6
+
+
+def test_seed_changes_visible_world_content_substantially() -> None:
+    first = generate_symbolic_scenario(42, difficulty="spark")
+    other = generate_symbolic_scenario(43, difficulty="spark")
+    first_names = {character.name for character in first.world.characters}
+    other_names = {character.name for character in other.world.characters}
+    first_locations = {location.name for location in first.world.locations}
+    other_locations = {location.name for location in other.world.locations}
+    first_objects = {obj.name for obj in first.world.objects}
+    other_objects = {obj.name for obj in other.world.objects}
+    assert len(first_names & other_names) <= max(1, len(first_names) // 3)
+    assert first_locations != other_locations
+    assert first_objects != other_objects
+    assert first.content_metadata["world_content_provider"] == "procedural"
+    assert first.content_metadata["world_content_fallback_used"] is True
+    visible_text = json.dumps(
+        {
+            "world": first.world.to_dict(),
+            "documents": [document.to_dict() for document in first.documents],
+            "questions": [question.to_dict() for question in first.questions],
+            "introduction": first.public_introduction,
+        }
+    )
+    assert "General Hargreaves" not in visible_text
 
 
 def test_difficulty_scales_case_size() -> None:
@@ -325,13 +357,38 @@ def test_template_documents_use_source_specific_realistic_formats() -> None:
     access_log = next(
         document for document in scenario.documents if document.visible_metadata["type"] == "access-control log"
     )
-    assert "From:" in sms.text
-    assert "To:" in sms.text
+    assert "Recovered SMS thread" in sms.text
+    assert any(line.count(":") >= 2 for line in sms.text.splitlines())
     assert "Same quiet place as before" in sms.text
     assert "timestamp | credential | door | result" in access_log.text
     assert "granted" in access_log.text
-    assert sms.visible_metadata["text_provider"] == "template"
+    assert sms.visible_metadata["text_provider"] == "procedural"
     assert sms.visible_metadata["fallback_used"] is True
+
+
+def test_template_documents_avoid_third_person_investigative_summaries() -> None:
+    scenario = generate_symbolic_scenario(43, difficulty="spark")
+    combined_text = "\n".join(document.text for document in scenario.documents)
+    forbidden_fragments = [
+        " appears in a ",
+        "message asking for a private meeting",
+        "Records show ",
+        " away from the incident location",
+        "claimed not to have been near",
+        "Treat this statement cautiously",
+    ]
+    for fragment in forbidden_fragments:
+        assert fragment not in combined_text
+
+    by_type = {document.visible_metadata["type"]: document.text for document in scenario.documents}
+    assert "Recovered SMS thread" in by_type["sms"]
+    assert "From:" in by_type["email"]
+    assert "Subject:" in by_type["email"]
+    assert "Detective:" in by_type["witness interview"]
+    assert "Witness:" in by_type["witness interview"]
+    assert "Telephone exchange log" in by_type["call log"]
+    assert "Phone location export" in by_type["gps report"]
+    assert "PETTY CASH RECEIPT" in by_type["receipt"]
 
 
 def test_document_plans_include_source_context_for_text_generation() -> None:
@@ -372,6 +429,127 @@ def test_text_generator_fallback_rejects_invalid_primary_output() -> None:
     result = FallbackTextGenerator(InvalidGenerator(), TemplateTextGenerator()).generate(request)
     assert result.provider == "template"
     assert result.fallback_used is True
+
+
+def test_text_generator_fallback_rejects_summary_style_primary_output() -> None:
+    class SummaryGenerator:
+        def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
+            return TextGenerationResult(
+                title=request.title,
+                text="Records show Clara Hargreaves had a motive.",
+                facts_expressed=list(request.plan.mandatory_fact_ids),
+                entities_mentioned=[],
+                provider="summary",
+            )
+
+    scenario = generate_symbolic_scenario(42)
+    plan = next(plan for plan in scenario.document_plans if plan.document_type == "email")
+    trace = next(trace for trace in scenario.traces if trace.id == plan.source_trace_ids[0])
+    facts = [fact for fact in scenario.facts if fact.id in plan.mandatory_fact_ids]
+    request = TextGenerationRequest(
+        document_id="doc_test",
+        title="Test",
+        plan=plan,
+        trace=trace,
+        world=scenario.world,
+        truth=scenario.ground_truth,
+        facts=facts,
+        created_at=scenario.ground_truth.incident_time.isoformat(),
+        source_style=SourceStyleCatalog().profile_for(plan.document_type),
+    )
+    result = FallbackTextGenerator(SummaryGenerator(), TemplateTextGenerator()).generate(request)
+    assert result.provider == "template"
+    assert result.fallback_used is True
+
+
+def test_content_generator_fallback_rejects_invalid_llm_world_content() -> None:
+    class InvalidContentGenerator:
+        def generate_world_content(self, seed, pack, difficulty, world):  # type: ignore[no-untyped-def]
+            return WorldContentResult({}, {}, {}, [], "invalid")
+
+        def generate_scenario_texts(self, scenario):  # type: ignore[no-untyped-def]
+            return ScenarioTextResult({}, {}, "invalid")
+
+    pack = load_pack("classic_manor")
+    difficulty = get_difficulty("easy")
+    world = WorldGenerator().generate(42, pack, difficulty)
+    result = FallbackContentGenerator(InvalidContentGenerator(), ProceduralContentGenerator()).generate_world_content(
+        42,
+        pack,
+        difficulty,
+        world,
+    )
+    assert result.provider == "procedural"
+    assert result.fallback_used is True
+
+
+def test_local_llm_content_can_drive_world_and_scenario_texts(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    script = tmp_path / "content_llm.py"
+    script.write_text(
+        """import json, sys
+request = json.loads(sys.stdin.read())
+if request.get('task') == 'assistcluedo_world_content':
+    seed = request['seed']
+    json.dump({
+      'characters': {
+        item['id']: {
+          'name': f"LLM {seed} Character {index}",
+          'public_role': f"LLM role {index}",
+          'description': f"LLM character description {seed}-{index}",
+        }
+        for index, item in enumerate(request['characters'], start=1)
+      },
+      'locations': {
+        item['id']: {
+          'name': f"LLM {seed} Room {index}",
+          'description': f"LLM location description {seed}-{index}",
+        }
+        for index, item in enumerate(request['locations'], start=1)
+      },
+      'objects': {
+        item['id']: {
+          'name': f"LLM {seed} Object {index}",
+          'description': f"LLM object description {seed}-{index}",
+        }
+        for index, item in enumerate(request['objects'], start=1)
+      },
+      'motives': [f"LLM motive {seed} alpha", f"LLM motive {seed} beta", f"LLM motive {seed} gamma"],
+    }, sys.stdout)
+elif request.get('task') == 'assistcluedo_scenario_texts':
+    json.dump({
+      'introduction': {
+        'title': 'LLM case title',
+        'context': 'LLM public case context.',
+        'objective': 'LLM objective.',
+      },
+      'questions': {
+        item['id']: {
+          'text': 'LLM rewritten ' + item['id'] + ': ' + item['text'],
+          'explanation': 'LLM explanation ' + item['id'],
+        }
+        for item in request['questions']
+      },
+    }, sys.stdout)
+else:
+    json.dump({
+      'title': request['title'],
+      'text': 'local llm styled document for ' + request['document_id'],
+      'facts_expressed': request['mandatory_fact_ids'],
+      'entities_mentioned': [],
+    }, sys.stdout)
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ASSISTCLUEDO_LOCAL_LLM_COMMAND", f"{sys.executable} {script}")
+    scenario = generate_symbolic_scenario(42, difficulty="easy", max_attempts=1)
+    assert all(character.name.startswith("LLM 42 Character") for character in scenario.world.characters)
+    assert all(location.name.startswith("LLM 42 Room") for location in scenario.world.locations)
+    assert all(obj.name.startswith("LLM 42 Object") for obj in scenario.world.objects)
+    assert scenario.ground_truth.motive.startswith("LLM motive 42")
+    assert scenario.public_introduction["title"] == "LLM case title"
+    assert scenario.questions[0].text.startswith("LLM rewritten q1:")
+    assert scenario.documents[0].visible_metadata["text_provider"] == "local-llm"
+    assert scenario.content_metadata["world_content_provider"] == "local-llm"
 
 
 def test_document_validator_checks_metadata_and_creation_time() -> None:

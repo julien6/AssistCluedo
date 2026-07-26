@@ -27,11 +27,17 @@ def export_scenario(scenario: Scenario, output_dir: Path) -> None:
         "pack_version": scenario.pack_version,
         "difficulty": scenario.difficulty,
         "framework_version": scenario.framework_version,
+        "content_metadata": scenario.content_metadata,
     })
     write_json(output_dir / "seeds.json", scenario.derived_seeds)
     write_yaml(
         output_dir / "config_snapshot.yaml",
-        {"pack": scenario.pack_id, "seed": scenario.seed, "difficulty": scenario.difficulty},
+        {
+            "pack": scenario.pack_id,
+            "seed": scenario.seed,
+            "difficulty": scenario.difficulty,
+            "content_metadata": scenario.content_metadata,
+        },
     )
     write_yaml(output_dir / "ontology_snapshot.yaml", {"pack_id": scenario.pack_id, "pack_version": scenario.pack_version})
     write_yaml(output_dir / "oracle" / "world.yaml", scenario.world.to_dict())

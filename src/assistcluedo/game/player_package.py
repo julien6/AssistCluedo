@@ -92,6 +92,8 @@ def build_player_package(scenario: Scenario) -> PlayerPackage:
 
 
 def player_introduction_for(scenario: Scenario) -> dict[str, object]:
+    if scenario.public_introduction:
+        return dict(scenario.public_introduction)
     victim = next(char for char in scenario.world.characters if char.id == scenario.ground_truth.victim_id)
     return {
         "title": "Death at Blackwood Manor",

@@ -50,10 +50,14 @@ class DocumentRenderer:
         plans: list[DocumentPlan],
         pack: Pack,
         text_generator: TextGenerator | None = None,
+        provider: str = "local-llm",
+        fallback: str = "procedural",
+        max_attempts: int = 2,
+        model: str = "local",
     ) -> list[GeneratedDocument]:
         facts_by_id = {fact.id: fact for fact in facts}
         traces_by_id = {trace.id: trace for trace in traces}
-        generator = text_generator or generator_for()
+        generator = text_generator or generator_for(provider, fallback=fallback, max_attempts=max_attempts, model=model)
         style_catalog = SourceStyleCatalog()
         documents = []
         for index, plan in enumerate(plans, start=1):

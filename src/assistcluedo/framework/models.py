@@ -192,6 +192,7 @@ class World(Serializable):
     objects: list[WorldObject]
     relationships: list[Relationship]
     travel_edges: list[TravelEdge] = field(default_factory=list)
+    attributes: dict[str, JsonScalar] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -237,3 +238,5 @@ class Scenario(Serializable):
     documents: list[GeneratedDocument]
     questions: list[QuizQuestion]
     proof_graph: ProofGraph
+    content_metadata: dict[str, JsonScalar] = field(default_factory=dict)
+    public_introduction: dict[str, JsonScalar] = field(default_factory=dict)

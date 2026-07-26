@@ -24,14 +24,33 @@ class GameSessionManager:
         output_dir: Path | None = None,
         resume: bool = False,
         difficulty: str = "easy",
+        content_provider: str = "local-llm",
+        fallback: str = "procedural",
+        max_attempts: int = 2,
+        model: str = "local",
     ) -> LoadedGame:
         run_dir = output_dir or Path("runs") / f"scenario_{seed:06d}"
         session_path = run_dir / "session.json"
         if resume and session_path.exists():
-            scenario = self._load_scenario_or_generate(run_dir, seed, difficulty)
+            scenario = self._load_scenario_or_generate(
+                run_dir,
+                seed,
+                difficulty,
+                content_provider,
+                fallback,
+                max_attempts,
+                model,
+            )
             return LoadedGame(scenario, load_session(session_path), session_path)
 
-        scenario = generate_symbolic_scenario(seed, difficulty=difficulty)
+        scenario = generate_symbolic_scenario(
+            seed,
+            difficulty=difficulty,
+            content_provider=content_provider,
+            fallback=fallback,
+            max_attempts=max_attempts,
+            model=model,
+        )
         export_scenario(scenario, run_dir)
         session = GameSession.new(scenario)
         save_session(session_path, session)
@@ -47,9 +66,24 @@ class GameSessionManager:
             save_session(session_path, session)
         return LoadedGame(scenario, session, session_path)
 
-    def _load_scenario_or_generate(self, run_dir: Path, seed: int, difficulty: str) -> Scenario:
+    def _load_scenario_or_generate(
+        self,
+        run_dir: Path,
+        seed: int,
+        difficulty: str,
+        content_provider: str,
+        fallback: str,
+        max_attempts: int,
+        model: str,
+    ) -> Scenario:
         scenario_path = run_dir / "scenario.json"
         if scenario_path.exists():
             return Scenario.from_dict(read_json(scenario_path))
-        return generate_symbolic_scenario(seed, difficulty=difficulty)
-
+        return generate_symbolic_scenario(
+            seed,
+            difficulty=difficulty,
+            content_provider=content_provider,
+            fallback=fallback,
+            max_attempts=max_attempts,
+            model=model,
+        )

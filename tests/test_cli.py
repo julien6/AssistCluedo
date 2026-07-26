@@ -430,12 +430,51 @@ def test_cli_framework_generate_uses_local_llm_by_default_when_configured(tmp_pa
     script.write_text(
         """import json, sys
 request = json.loads(sys.stdin.read())
-json.dump({
-  'title': request['title'],
-  'text': 'qwen-style local default for ' + request['document_id'],
-  'facts_expressed': request['mandatory_fact_ids'],
-  'entities_mentioned': [],
-}, sys.stdout)
+if request.get('task') == 'assistcluedo_world_content':
+    json.dump({
+      'characters': {
+        item['id']: {
+          'name': f"Qwen Character {index}",
+          'public_role': f"Qwen role {index}",
+          'description': f"Qwen character description {index}",
+        }
+        for index, item in enumerate(request['characters'], start=1)
+      },
+      'locations': {
+        item['id']: {
+          'name': f"Qwen Room {index}",
+          'description': f"Qwen location description {index}",
+        }
+        for index, item in enumerate(request['locations'], start=1)
+      },
+      'objects': {
+        item['id']: {
+          'name': f"Qwen Object {index}",
+          'description': f"Qwen object description {index}",
+        }
+        for index, item in enumerate(request['objects'], start=1)
+      },
+      'motives': ['Qwen motive alpha', 'Qwen motive beta', 'Qwen motive gamma'],
+    }, sys.stdout)
+elif request.get('task') == 'assistcluedo_scenario_texts':
+    json.dump({
+      'introduction': {
+        'title': 'Qwen case file',
+        'context': 'Qwen public context.',
+        'objective': 'Qwen objective.',
+      },
+      'questions': {
+        item['id']: {'text': 'Qwen ' + item['text'], 'explanation': 'Qwen ' + item['explanation']}
+        for item in request['questions']
+      },
+    }, sys.stdout)
+else:
+    json.dump({
+      'title': request['title'],
+      'text': 'qwen-style local default for ' + request['document_id'],
+      'facts_expressed': request['mandatory_fact_ids'],
+      'entities_mentioned': [],
+    }, sys.stdout)
 """,
         encoding="utf-8",
     )
@@ -462,6 +501,72 @@ json.dump({
     scenario = json.loads((tmp_path / "run" / "scenario.json").read_text(encoding="utf-8"))
     assert scenario["documents"][0]["visible_metadata"]["text_provider"] == "local-llm"
     assert scenario["documents"][0]["visible_metadata"]["fallback_used"] is False
+    assert scenario["world"]["characters"][0]["name"].startswith("Qwen Character")
+    assert scenario["public_introduction"]["title"] == "Qwen case file"
+    assert scenario["content_metadata"]["world_content_provider"] == "local-llm"
+
+
+def test_cli_framework_generate_accepts_content_options(tmp_path: Path) -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "assistcluedo",
+            "framework",
+            "generate",
+            "--seed",
+            "42",
+            "--difficulty",
+            "easy",
+            "--content-provider",
+            "procedural",
+            "--fallback",
+            "procedural",
+            "--max-attempts",
+            "1",
+            "--model",
+            "local",
+            "--output",
+            str(tmp_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    scenario = json.loads((tmp_path / "scenario.json").read_text(encoding="utf-8"))
+    assert scenario["content_metadata"]["world_content_provider"] == "procedural"
+    assert scenario["documents"][0]["visible_metadata"]["text_provider"] == "procedural"
+
+
+def test_cli_game_start_accepts_content_options(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "assistcluedo",
+            "game",
+            "start",
+            "--seed",
+            "42",
+            "--difficulty",
+            "easy",
+            "--content-provider",
+            "procedural",
+            "--fallback",
+            "procedural",
+            "--max-attempts",
+            "1",
+            "--output",
+            str(tmp_path),
+        ],
+        input="q\n",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    scenario = json.loads((tmp_path / "scenario.json").read_text(encoding="utf-8"))
+    assert "Seed: 42 | Difficulty: easy" in result.stdout
+    assert scenario["content_metadata"]["world_content_provider"] == "procedural"
 
 
 def test_cli_framework_audit_reports_definition_of_done(tmp_path: Path) -> None:

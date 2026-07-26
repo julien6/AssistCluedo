@@ -64,7 +64,8 @@ class SourceStyleCatalog:
 
 
 class TemplateTextGenerator:
-    provider = "template"
+    def __init__(self, provider: str = "template") -> None:
+        self.provider = provider
 
     def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
         facts = {fact.id: fact for fact in request.facts}
@@ -185,6 +186,10 @@ def generator_for(provider: str = "local-llm", fallback: str = "template", max_a
 def validate_text_generation_result(request: TextGenerationRequest, result: TextGenerationResult) -> None:
     if not result.title.strip() or not result.text.strip():
         raise ValueError("Generated document must have a non-empty title and text.")
+    text = result.text.lower()
+    for pattern in _SUMMARY_ANTI_PATTERNS:
+        if pattern in text:
+            raise ValueError(f"Generated document uses summary-style wording: {pattern}")
     expressed = set(result.facts_expressed)
     mandatory = set(request.plan.mandatory_fact_ids)
     forbidden = set(request.plan.forbidden_fact_ids)
@@ -201,6 +206,8 @@ def validate_text_generation_result(request: TextGenerationRequest, result: Text
 def _base_generator(provider: str, model: str) -> TextGenerator:
     if provider == "template":
         return TemplateTextGenerator()
+    if provider == "procedural":
+        return TemplateTextGenerator(provider="procedural")
     if provider == "mock":
         return MockTextGenerator()
     if provider == "openai":
@@ -246,10 +253,11 @@ def _sms_lines(request: TextGenerationRequest, facts: dict[str, Fact]) -> list[s
         recipient = entity_name(request.world, str(fact.object))
         time = _time(fact)
         return [
-            f"From: {sender}",
-            f"To: {recipient}",
-            f"Sent: {time}",
-            '"Can we talk before everyone starts asking questions? Not in the dining room. Same quiet place as before."',
+            f"Recovered SMS thread - {sender} / {recipient}",
+            f"{time}  {sender}: Are you still in the house?",
+            f"{time}  {recipient}: For now. Dinner has turned into speeches.",
+            f"{time}  {sender}: Then slip away before they notice. Not the dining room.",
+            f"{time}  {sender}: Same quiet place as before. I need you to hear this from me.",
         ]
     return _generic_lines(request, facts)
 
@@ -258,13 +266,20 @@ def _email_lines(request: TextGenerationRequest, facts: dict[str, Fact]) -> list
     fact = facts.get("fact_motive")
     if fact:
         sender = entity_name(request.world, fact.subject)
+        recipient = entity_name(request.world, request.truth.victim_id)
         return [
             f"From: {sender}",
+            f"To: {recipient}",
             "Subject: The matter you promised to settle",
+            f"Date: {request.created_at}",
             "",
-            "I have kept this out of the household gossip for longer than I should have.",
-            f"The records point to the same pressure again: {fact.object}.",
-            "Do not mistake my silence for agreement.",
+            f"{recipient},",
+            "",
+            "You asked me to keep this out of tonight's conversation, and I did.",
+            f"But I will not keep swallowing the consequences of {fact.object}.",
+            "You know exactly who was hurt by that decision, even if you prefer to call it old business.",
+            "",
+            "We should settle it before the house starts listening.",
         ]
     return _generic_lines(request, facts)
 
@@ -280,19 +295,44 @@ def _access_log_lines(request: TextGenerationRequest, facts: dict[str, Fact]) ->
 
 
 def _witness_lines(request: TextGenerationRequest, facts: dict[str, Fact]) -> list[str]:
-    rows = ["Witness interview transcript", "Detective: Please describe only what you personally observed."]
+    rows = [
+        "Witness interview transcript",
+        f"Recorded: {request.created_at}",
+        "Detective: Please describe only what you personally observed.",
+    ]
     for fact in request.facts:
         if fact.id == "fact_exculpated_alibi":
             rows.append(
-                f"Witness: I saw {entity_name(request.world, fact.subject)} in {entity_name(request.world, str(fact.object))} around {_time(fact)}. They looked hurried, but they were not near the incident room."
+                f"Witness: Around {_time(fact)}, I remember {entity_name(request.world, fact.subject)} in {entity_name(request.world, str(fact.object))}."
+            )
+            rows.append(
+                "Detective: You are certain about the place?"
+            )
+            rows.append(
+                "Witness: Certain enough. I noticed because I had to step around them with a tray."
             )
         elif fact.id == "fact_false_statement":
             rows.append(
-                f"Witness: {entity_name(request.world, fact.subject)} insisted they had not gone near {entity_name(request.world, request.truth.location_id)} after dinner. That answer did not sit comfortably with the access records."
+                f"Detective: Did {entity_name(request.world, fact.subject)} say where they went after dinner?"
+            )
+            rows.append(
+                f"Witness: They said, very firmly, that they never went near {entity_name(request.world, request.truth.location_id)}."
+            )
+            rows.append(
+                "Detective: Firmly?"
+            )
+            rows.append(
+                "Witness: Too firmly, if you ask me. Like the answer had been rehearsed."
             )
         elif fact.id == "fact_witness_seen_culprit":
             rows.append(
-                f"Witness: I noticed {entity_name(request.world, fact.subject)} leaving the corridor outside {entity_name(request.world, request.truth.location_id)} at about {_time(fact)}."
+                f"Witness: I noticed {entity_name(request.world, fact.subject)} near the corridor outside {entity_name(request.world, request.truth.location_id)} at about {_time(fact)}."
+            )
+            rows.append(
+                "Detective: Passing through, or leaving?"
+            )
+            rows.append(
+                "Witness: Leaving, I think. They turned away when they saw me."
             )
     return rows if len(rows) > 2 else _generic_lines(request, facts)
 
@@ -309,49 +349,93 @@ def _autopsy_lines(request: TextGenerationRequest, facts: dict[str, Fact]) -> li
 
 
 def _security_lines(request: TextGenerationRequest, facts: dict[str, Fact]) -> list[str]:
-    rows = ["Security maintenance report", f"Created: {request.created_at}"]
+    rows = [
+        "Security maintenance ticket",
+        f"Opened: {request.created_at}",
+        "System: Blackwood internal camera network",
+        "Status notes:",
+    ]
     for fact in request.facts:
         if fact.id == "fact_camera_disabled":
             rows.append(
-                f"The camera covering {entity_name(request.world, request.truth.location_id)} was unavailable from {_time(fact)}. No direct footage exists for that interval."
+                f"- {_time(fact)} feed loss recorded for camera covering {entity_name(request.world, request.truth.location_id)}."
+            )
+            rows.append(
+                "- Recorder continued accepting other channels; outage appears localized to that view."
             )
     return rows if len(rows) > 2 else _generic_lines(request, facts)
 
 
 def _personal_note_lines(request: TextGenerationRequest, facts: dict[str, Fact]) -> list[str]:
-    rows = ["Personal note recovered from a private desk:"]
+    rows = ["Undated personal note, folded into a desk blotter:"]
     for fact in request.facts:
         if fact.id == "fact_false_lead_argument":
             rows.append(
-                f"{entity_name(request.world, fact.subject)} was arguing with {entity_name(request.world, str(fact.object))} again. Money, pride, old promises; it sounded ugly enough for half the house to notice."
+                f"{entity_name(request.world, fact.subject)} and {entity_name(request.world, str(fact.object))} started up again tonight."
+            )
+            rows.append(
+                "I could hear the tight voices even with the service door closed."
+            )
+            rows.append(
+                "It was money first, then pride, then one of those old promises nobody is meant to mention."
             )
     return rows if len(rows) > 1 else _generic_lines(request, facts)
 
 
 def _inventory_lines(request: TextGenerationRequest, facts: dict[str, Fact]) -> list[str]:
-    rows = ["Household inventory exception report"]
+    setting_name = str(request.world.attributes.get("setting_name", "Blackwood Manor"))
+    rows = [
+        f"{setting_name} - household inventory exception sheet",
+        f"Filed: {request.created_at}",
+        "Item checks:",
+    ]
     for fact in request.facts:
         if fact.id == "fact_weapon_initial_location":
-            rows.append(f"- Usual storage: {entity_name(request.world, fact.subject)} in {entity_name(request.world, str(fact.object))}.")
+            rows.append(f"- {entity_name(request.world, fact.subject)}: usual storage listed as {entity_name(request.world, str(fact.object))}.")
         elif fact.id == "fact_weapon_hidden":
-            rows.append(f"- Recovery note: {entity_name(request.world, fact.subject)} later found hidden in {entity_name(request.world, str(fact.object))}.")
+            rows.append(f"- Recovery update: same item located in {entity_name(request.world, str(fact.object))}; not returned through normal storage.")
     return rows
 
 
 def _gps_lines(request: TextGenerationRequest, facts: dict[str, Fact]) -> list[str]:
-    return _contextual_report_lines(request, "GPS proximity export", "phone location estimate")
+    rows = ["Phone location export", "timestamp | handset | estimated area | confidence"]
+    for fact in request.facts:
+        if fact.id.startswith("fact_ev_ctx_"):
+            rows.append(
+                f"{_time(fact)} | {entity_name(request.world, fact.subject)} handset | {entity_name(request.world, str(fact.object))} | medium"
+            )
+    return rows if len(rows) > 2 else _generic_lines(request, {fact.id: fact for fact in request.facts})
 
 
 def _receipt_lines(request: TextGenerationRequest, facts: dict[str, Fact]) -> list[str]:
-    return _contextual_report_lines(request, "Receipt record", "point-of-sale note")
+    rows = ["BLACKWOOD MANOR PETTY CASH RECEIPT", f"Printed: {request.created_at}", "line | description | location"]
+    for fact in request.facts:
+        if fact.id.startswith("fact_ev_ctx_"):
+            rows.append(
+                f"01 | signed counterfoil: {entity_name(request.world, fact.subject)} | {entity_name(request.world, str(fact.object))}"
+            )
+    return rows if len(rows) > 3 else _generic_lines(request, {fact.id: fact for fact in request.facts})
 
 
 def _call_log_lines(request: TextGenerationRequest, facts: dict[str, Fact]) -> list[str]:
-    return _contextual_report_lines(request, "Call log extract", "telephony record")
+    rows = ["Telephone exchange log", "time | extension | party | route note"]
+    for fact in request.facts:
+        if fact.id.startswith("fact_ev_ctx_"):
+            rows.append(
+                f"{_time(fact)} | house line | {entity_name(request.world, fact.subject)} | routed near {entity_name(request.world, str(fact.object))}"
+            )
+    return rows if len(rows) > 2 else _generic_lines(request, {fact.id: fact for fact in request.facts})
 
 
 def _newspaper_lines(request: TextGenerationRequest, facts: dict[str, Fact]) -> list[str]:
-    return _contextual_report_lines(request, "Local newspaper clipping", "background mention")
+    rows = ["Blackwood Gazette society column", f"Clipping filed: {request.created_at}"]
+    for fact in request.facts:
+        if fact.id.startswith("fact_ev_ctx_"):
+            rows.append(
+                f"Among the guests noticed near {entity_name(request.world, str(fact.object))} was {entity_name(request.world, fact.subject)}, a familiar face at the manor's Sunday gatherings."
+            )
+    rows.append("The column makes no claim about the later police inquiry.")
+    return rows if len(rows) > 2 else _generic_lines(request, {fact.id: fact for fact in request.facts})
 
 
 def _contextual_report_lines(request: TextGenerationRequest, heading: str, label: str) -> list[str]:
@@ -411,6 +495,27 @@ def _llm_prompt(request: TextGenerationRequest) -> str:
             "Do not expose internal IDs in the document text; IDs may appear only in facts_expressed and entities_mentioned.",
             "Return JSON only, with no markdown and no surrounding commentary.",
         ],
+        "anti_summary_rules": [
+            "Do not write a third-person case summary.",
+            "Do not use formulations like '<person> appears in a record at <time> near <place>'.",
+            "Do not use formulations like '<person> sent <person> a message asking for a private meeting'.",
+            "Do not use formulations like 'Records show <person> had a motive'.",
+            "Do not use formulations like '<person> was seen in <place> away from the incident location'.",
+            "Do not write evaluator guidance such as 'Treat this statement cautiously'.",
+            "The document must look like the source itself: an SMS thread, email, transcript, receipt, call log, device export, diary note, or report excerpt.",
+        ],
+        "source_shape_examples": {
+            "sms": "Use timestamped dialogue lines with speaker names, short replies, incomplete context, and no narrator.",
+            "email": "Use From/To/Subject/Date headers and body text addressed directly to the recipient.",
+            "witness interview": "Use Detective:/Witness: turns with spoken uncertainty and personally observed details.",
+            "access-control log": "Use a machine table with timestamp, credential, door, and result fields.",
+            "gps report": "Use a device export table with handset, estimated area, and confidence fields.",
+            "receipt": "Use receipt or petty-cash line items, not a prose explanation.",
+            "call log": "Use telephone exchange rows with extension, time, party, and route note.",
+            "personal note": "Use first-person private writing with implied context, not investigative exposition.",
+            "newspaper clipping": "Use a clipped society-column style with public observations only.",
+            "autopsy report": "Use clinical headings and restrained forensic observations.",
+        },
         "source_realism_contract": {
             "structure": request.source_style.structure,
             "register": request.source_style.register,
@@ -483,6 +588,16 @@ _RESULT_SCHEMA: dict[str, Any] = {
 }
 
 
+_SUMMARY_ANTI_PATTERNS = (
+    " appears in a ",
+    "message asking for a private meeting",
+    "records show ",
+    "away from the incident location",
+    "claimed not to have been near",
+    "treat this statement cautiously",
+)
+
+
 _SOURCE_STYLES = {
     "sms": SourceStyle(
         "private phone message",
@@ -525,5 +640,47 @@ _SOURCE_STYLES = {
         "Mention device status and coverage limitations.",
         "Do not infer intent from equipment status.",
         "3-6 lines",
+    ),
+    "personal note": SourceStyle(
+        "private handwritten note",
+        "intimate and fragmentary",
+        "Use first-person memory, household detail, and implied tension.",
+        "Do not explain the clue as an investigator would.",
+        "3-6 lines",
+    ),
+    "inventory report": SourceStyle(
+        "household inventory exception sheet",
+        "clerical",
+        "Use item labels, storage locations, and exception language.",
+        "Do not infer who moved or used an item unless that fact is mandatory.",
+        "3-6 lines",
+    ),
+    "gps report": SourceStyle(
+        "phone location export",
+        "technical and terse",
+        "Use rows, handset labels, estimated areas, timestamps, and confidence levels.",
+        "Do not turn device pings into eyewitness certainty.",
+        "2-5 table rows",
+    ),
+    "receipt": SourceStyle(
+        "petty-cash receipt",
+        "clerical and mundane",
+        "Use receipt rows, counterfoils, signatures, or desk/location annotations.",
+        "Do not summarize why the receipt matters.",
+        "2-5 lines",
+    ),
+    "call log": SourceStyle(
+        "telephone exchange log",
+        "operator/system record",
+        "Use routed call rows, extension labels, timestamps, and terse notes.",
+        "Do not infer intent from the call.",
+        "2-5 table rows",
+    ),
+    "newspaper clipping": SourceStyle(
+        "society column clipping",
+        "public, polished, and slightly indirect",
+        "Use a periodical excerpt that notices attendance and locations without case analysis.",
+        "Do not mention police conclusions or hidden facts.",
+        "2-5 lines",
     ),
 }

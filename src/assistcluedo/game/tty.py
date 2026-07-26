@@ -28,8 +28,21 @@ def start_game(
     output_dir: Path | None = None,
     resume: bool = False,
     difficulty: str = "easy",
+    content_provider: str = "local-llm",
+    fallback: str = "procedural",
+    max_attempts: int = 2,
+    model: str = "local",
 ) -> None:
-    loaded = GameSessionManager().start_new_or_resume(seed, output_dir, resume, difficulty)
+    loaded = GameSessionManager().start_new_or_resume(
+        seed,
+        output_dir,
+        resume,
+        difficulty,
+        content_provider=content_provider,
+        fallback=fallback,
+        max_attempts=max_attempts,
+        model=model,
+    )
     _play_loop(loaded.scenario, loaded.session, loaded.session_path)
 
 

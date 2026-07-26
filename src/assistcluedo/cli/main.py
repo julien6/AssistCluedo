@@ -35,6 +35,10 @@ def main() -> None:
     generate.add_argument("--pack", default="classic_manor")
     generate.add_argument("--difficulty", choices=sorted(DIFFICULTIES), default="easy")
     generate.add_argument("--output", type=Path, default=None)
+    generate.add_argument("--content-provider", default="local-llm")
+    generate.add_argument("--fallback", default="procedural")
+    generate.add_argument("--max-attempts", type=int, default=2)
+    generate.add_argument("--model", default="local")
     stress = framework_sub.add_parser("stress")
     stress.add_argument("--start-seed", type=int, default=1)
     stress.add_argument("--count", type=int, default=100)
@@ -64,6 +68,10 @@ def main() -> None:
     start.add_argument("--difficulty", choices=sorted(DIFFICULTIES), default="easy")
     start.add_argument("--output", type=Path, default=None)
     start.add_argument("--resume", action="store_true")
+    start.add_argument("--content-provider", default="local-llm")
+    start.add_argument("--fallback", default="procedural")
+    start.add_argument("--max-attempts", type=int, default=2)
+    start.add_argument("--model", default="local")
     play = game_sub.add_parser("play")
     play.add_argument("export_dir", type=Path)
     evaluate = game_sub.add_parser("evaluate")
@@ -100,7 +108,15 @@ def _framework(args: argparse.Namespace) -> None:
     if args.framework_command == "generate":
         if args.pack != "classic_manor":
             raise SystemExit("Only the classic_manor pack is available.")
-        scenario = generate_symbolic_scenario(args.seed, pack_id=args.pack, difficulty=args.difficulty)
+        scenario = generate_symbolic_scenario(
+            args.seed,
+            pack_id=args.pack,
+            difficulty=args.difficulty,
+            content_provider=args.content_provider,
+            fallback=args.fallback,
+            max_attempts=args.max_attempts,
+            model=args.model,
+        )
         output = args.output or Path("runs") / scenario.id
         export_scenario(scenario, output)
         print(f"Generated {scenario.id} in {output}")
@@ -208,6 +224,10 @@ def _game(args: argparse.Namespace) -> None:
             output_dir=args.output,
             resume=args.resume,
             difficulty=args.difficulty,
+            content_provider=args.content_provider,
+            fallback=args.fallback,
+            max_attempts=args.max_attempts,
+            model=args.model,
         )
         return
     if args.game_command == "play":

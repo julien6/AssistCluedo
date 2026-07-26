@@ -57,7 +57,7 @@ class QuestionGenerator:
             [
                 entity_name(world, truth.culprit_id),
                 entity_name(world, truth.false_lead_character_id),
-                "General Hargreaves",
+                entity_name(world, truth.victim_id),
             ],
             rng,
         )

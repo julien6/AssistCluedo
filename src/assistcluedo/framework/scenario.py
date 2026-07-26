@@ -9,7 +9,13 @@ from assistcluedo.framework.seed import rng_for
 
 
 class ScenarioGenerator:
-    def generate_ground_truth(self, seed: int, world: World, pack: Pack) -> GroundTruth:
+    def generate_ground_truth(
+        self,
+        seed: int,
+        world: World,
+        pack: Pack,
+        motive_options: list[str] | None = None,
+    ) -> GroundTruth:
         rng = rng_for(seed, "scenario")
         suspects = sorted(char.id for char in world.characters if char.id != "general")
         culprit_id = rng.choice(suspects)
@@ -25,7 +31,7 @@ class ScenarioGenerator:
         if not accessible_weapons:
             raise ValueError(f"No accessible weapon for culprit {culprit_id}.")
         weapon = rng.choice(sorted(accessible_weapons, key=lambda item: item.id))
-        motive = rng.choice(sorted(pack.motives))
+        motive = rng.choice(sorted(motive_options or pack.motives))
         incident_time = datetime(2026, 8, 9, 21, 14, tzinfo=UTC) + timedelta(
             minutes=rng.choice([0, 3, 6, 9])
         )

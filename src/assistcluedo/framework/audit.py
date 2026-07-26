@@ -96,6 +96,20 @@ def _all_traces_have_events(scenario: Any) -> bool:
 
 def _stable_symbolic_snapshot(scenario: Any) -> dict[str, object]:
     data = scenario.to_dict()
+    data["content_metadata"] = {}
+    data["public_introduction"] = {}
+    data["world"] = _symbolic_world_snapshot(data["world"])
+    data["ground_truth"]["motive"] = "<narrative_motive>"
+    for event in data["events"]:
+        if event.get("attributes"):
+            event["attributes"] = {
+                key: value
+                for key, value in event["attributes"].items()
+                if key != "motive"
+            }
+    for fact in data["facts"]:
+        if fact["id"] == "fact_motive":
+            fact["object"] = "<narrative_motive>"
     data["documents"] = [
         {
             "id": document["id"],
@@ -107,7 +121,52 @@ def _stable_symbolic_snapshot(scenario: Any) -> dict[str, object]:
         }
         for document in data["documents"]
     ]
+    data["questions"] = [
+        {
+            "id": question["id"],
+            "category": question["category"],
+            "correct_choice_ids": question["correct_choice_ids"],
+            "supporting_fact_ids": question["supporting_fact_ids"],
+            "supporting_document_ids": question["supporting_document_ids"],
+            "difficulty": question["difficulty"],
+        }
+        for question in data["questions"]
+    ]
     return data
+
+
+def _symbolic_world_snapshot(world: dict[str, Any]) -> dict[str, object]:
+    return {
+        "id": world["id"],
+        "characters": [
+            {
+                "id": character["id"],
+                "capabilities": character["capabilities"],
+                "relationship_ids": character["relationship_ids"],
+            }
+            for character in world["characters"]
+        ],
+        "locations": [
+            {
+                "id": location["id"],
+                "location_type": location["location_type"],
+                "parent_id": location["parent_id"],
+                "access": location["attributes"].get("access"),
+            }
+            for location in world["locations"]
+        ],
+        "objects": [
+            {
+                "id": obj["id"],
+                "object_type": obj["object_type"],
+                "location_id": obj["location_id"],
+                "owner_id": obj["owner_id"],
+            }
+            for obj in world["objects"]
+        ],
+        "relationships": world["relationships"],
+        "travel_edges": world["travel_edges"],
+    }
 
 
 def _all_documents_have_plans(scenario: Any) -> bool:

@@ -36,7 +36,9 @@ def test_case_presentation_service_exposes_public_case_text() -> None:
     scenario = generate_symbolic_scenario(42)
     service = CasePresentationService()
     intro = service.introduction(scenario)
-    assert intro["title"] == "Death at Blackwood Manor"
+    assert intro["title"] == scenario.public_introduction["title"]
+    assert intro["context"]
+    assert intro["objective"]
     assert service.public_character_lines(scenario)[0].startswith("- ")
     assert service.public_location_lines(scenario)[0].startswith("- ")
 
