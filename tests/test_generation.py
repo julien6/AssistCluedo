@@ -36,6 +36,7 @@ from assistcluedo.framework.questions import QuestionGenerator
 from assistcluedo.framework.scenario import ScenarioGenerator
 from assistcluedo.framework.seed import derive_seed, derive_seeds
 from assistcluedo.framework.textgen import (
+    DocumentProfileCatalog,
     FallbackTextGenerator,
     SourceStyleCatalog,
     TemplateTextGenerator,
@@ -357,22 +358,24 @@ def test_template_documents_use_source_specific_realistic_formats() -> None:
     access_log = next(
         document for document in scenario.documents if document.visible_metadata["type"] == "access-control log"
     )
-    assert "Recovered SMS thread" in sms.text
-    assert any(line.count(":") >= 2 for line in sms.text.splitlines())
-    assert "Same quiet place as before" in sms.text
-    assert "timestamp | credential | door | result" in access_log.text
-    assert "granted" in access_log.text
+    assert sms.visible_metadata["source_profile"] in {"personal_sms_exchange", "single_sms", "phone_notification"}
+    assert "Same quiet place" in sms.text or "same quiet place" in sms.text
+    assert "|" in access_log.text
+    assert any(marker in access_log.text.lower() for marker in ("granted", " ok", "| ok"))
     assert sms.visible_metadata["text_provider"] == "procedural"
     assert sms.visible_metadata["fallback_used"] is True
 
 
 def test_template_documents_avoid_third_person_investigative_summaries() -> None:
-    scenario = generate_symbolic_scenario(43, difficulty="spark")
+    scenario = generate_symbolic_scenario(7, difficulty="easy")
     combined_text = "\n".join(document.text for document in scenario.documents)
     forbidden_fragments = [
         " appears in a ",
+        " appears near ",
         "message asking for a private meeting",
         "Records show ",
+        "had a motive:",
+        "had a heated argument with",
         " away from the incident location",
         "claimed not to have been near",
         "Treat this statement cautiously",
@@ -381,14 +384,15 @@ def test_template_documents_avoid_third_person_investigative_summaries() -> None
         assert fragment not in combined_text
 
     by_type = {document.visible_metadata["type"]: document.text for document in scenario.documents}
-    assert "Recovered SMS thread" in by_type["sms"]
+    assert any(marker in by_type["sms"] for marker in ("Hi", "You there", "Still inside", "From:", "SMS export"))
     assert "From:" in by_type["email"]
     assert "Subject:" in by_type["email"]
+    assert "\nI " in by_type["personal note"]
     assert "Detective:" in by_type["witness interview"]
     assert "Witness:" in by_type["witness interview"]
     assert "Telephone exchange log" in by_type["call log"]
     assert "Phone location export" in by_type["gps report"]
-    assert "PETTY CASH RECEIPT" in by_type["receipt"]
+    assert any(marker in by_type["receipt"] for marker in ("PETTY CASH RECEIPT", "Counterfoil slip"))
 
 
 def test_document_plans_include_source_context_for_text_generation() -> None:
@@ -398,6 +402,29 @@ def test_document_plans_include_source_context_for_text_generation() -> None:
     assert sms_plan.source_system_id == "mobile phone extraction"
     assert sms_plan.style["tone"] == "tense and elliptical"
     assert interview_plan.style["register"] == "spoken transcript"
+
+
+def test_document_profiles_are_seeded_and_vary_document_shapes() -> None:
+    first = generate_symbolic_scenario(42, difficulty="spark")
+    second = generate_symbolic_scenario(42, difficulty="spark")
+    other = generate_symbolic_scenario(43, difficulty="spark")
+    first_profiles = [document.visible_metadata["source_profile"] for document in first.documents]
+    assert first_profiles == [document.visible_metadata["source_profile"] for document in second.documents]
+    assert first_profiles != [document.visible_metadata["source_profile"] for document in other.documents]
+    assert len(set(first_profiles)) > 5
+
+
+def test_procedural_sms_fallback_has_multiple_realistic_variants() -> None:
+    texts = []
+    profiles = set()
+    for seed in range(1, 12):
+        scenario = generate_symbolic_scenario(seed, difficulty="easy")
+        sms = next(document for document in scenario.documents if document.visible_metadata["type"] == "sms")
+        texts.append(sms.text)
+        profiles.add(str(sms.visible_metadata["source_profile"]))
+    assert len(set(texts)) >= 3
+    assert len(profiles) >= 2
+    assert all("message asking for a private meeting" not in text for text in texts)
 
 
 def test_text_generator_fallback_rejects_invalid_primary_output() -> None:
@@ -425,6 +452,7 @@ def test_text_generator_fallback_rejects_invalid_primary_output() -> None:
         facts=facts,
         created_at=scenario.ground_truth.incident_time.isoformat(),
         source_style=SourceStyleCatalog().profile_for(plan.document_type),
+        document_profile=DocumentProfileCatalog().profile_for(42, "doc_test", plan.document_type),
     )
     result = FallbackTextGenerator(InvalidGenerator(), TemplateTextGenerator()).generate(request)
     assert result.provider == "template"
@@ -456,10 +484,44 @@ def test_text_generator_fallback_rejects_summary_style_primary_output() -> None:
         facts=facts,
         created_at=scenario.ground_truth.incident_time.isoformat(),
         source_style=SourceStyleCatalog().profile_for(plan.document_type),
+        document_profile=DocumentProfileCatalog().profile_for(42, "doc_test", plan.document_type),
     )
     result = FallbackTextGenerator(SummaryGenerator(), TemplateTextGenerator()).generate(request)
     assert result.provider == "template"
     assert result.fallback_used is True
+
+
+def test_text_generator_fallback_rejects_wrong_source_shape_primary_output() -> None:
+    class SmsSummaryGenerator:
+        def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
+            return TextGenerationResult(
+                title=request.title,
+                text="Marta Bell sent General Hargreaves a message asking for a private meeting at 20:27.",
+                facts_expressed=list(request.plan.mandatory_fact_ids),
+                entities_mentioned=[],
+                provider="summary",
+            )
+
+    scenario = generate_symbolic_scenario(7)
+    plan = next(plan for plan in scenario.document_plans if plan.document_type == "sms")
+    trace = next(trace for trace in scenario.traces if trace.id == plan.source_trace_ids[0])
+    facts = [fact for fact in scenario.facts if fact.id in plan.mandatory_fact_ids]
+    request = TextGenerationRequest(
+        document_id="doc_test",
+        title="Test",
+        plan=plan,
+        trace=trace,
+        world=scenario.world,
+        truth=scenario.ground_truth,
+        facts=facts,
+        created_at=scenario.ground_truth.incident_time.isoformat(),
+        source_style=SourceStyleCatalog().profile_for(plan.document_type),
+        document_profile=DocumentProfileCatalog().profile_for(7, "doc_test", plan.document_type),
+    )
+    result = FallbackTextGenerator(SmsSummaryGenerator(), TemplateTextGenerator()).generate(request)
+    assert result.provider == "template"
+    assert result.fallback_used is True
+    assert any(marker in result.text for marker in ("Recovered SMS thread", "SMS export", "Phone notification preview"))
 
 
 def test_content_generator_fallback_rejects_invalid_llm_world_content() -> None:
@@ -531,9 +593,22 @@ elif request.get('task') == 'assistcluedo_scenario_texts':
       },
     }, sys.stdout)
 else:
+    doc_type = request['document_type']
+    if doc_type == 'sms':
+        text = '20:27  Alex: Hi! Are you still there?\\n20:28  Blake: Yes. Keep it quiet.'
+    elif doc_type == 'email':
+        text = 'From: Alex\\nTo: Blake\\nSubject: Tonight\\nDate: now\\n\\nBlake,\\nWe need to settle this privately.'
+    elif doc_type == 'witness interview':
+        text = 'Detective: What did you notice?\\nWitness: I heard footsteps near the hall.'
+    elif doc_type == 'personal note':
+        text = 'I heard voices again tonight. My hands were shaking when I wrote this.'
+    elif doc_type in {'access-control log', 'gps report', 'receipt', 'call log'}:
+        text = 'time | source | detail\\n20:27 | local llm | formatted source row'
+    else:
+        text = 'Preliminary source excerpt\\nObservation recorded in source format.'
     json.dump({
       'title': request['title'],
-      'text': 'local llm styled document for ' + request['document_id'],
+      'text': text,
       'facts_expressed': request['mandatory_fact_ids'],
       'entities_mentioned': [],
     }, sys.stdout)

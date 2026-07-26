@@ -393,9 +393,22 @@ def test_cli_framework_regenerate_documents_supports_local_llm_provider(tmp_path
     script.write_text(
         """import json, sys
 request = json.loads(sys.stdin.read())
+doc_type = request['document_type']
+if doc_type == 'sms':
+    text = '20:27  Alex: Hi! Are you still there?\\n20:28  Blake: Yes. Keep it quiet.'
+elif doc_type == 'email':
+    text = 'From: Alex\\nTo: Blake\\nSubject: Tonight\\nDate: now\\n\\nBlake,\\nWe need to settle this privately.'
+elif doc_type == 'witness interview':
+    text = 'Detective: What did you notice?\\nWitness: I heard footsteps near the hall.'
+elif doc_type == 'personal note':
+    text = 'I heard voices again tonight. My hands were shaking when I wrote this.'
+elif doc_type in {'access-control log', 'gps report', 'receipt', 'call log'}:
+    text = 'time | source | detail\\n20:27 | local llm | formatted source row'
+else:
+    text = 'Preliminary source excerpt\\nObservation recorded in source format.'
 json.dump({
   'title': request['title'],
-  'text': 'local llm styled document for ' + request['document_id'],
+  'text': text,
   'facts_expressed': request['mandatory_fact_ids'],
   'entities_mentioned': [],
 }, sys.stdout)
@@ -469,9 +482,22 @@ elif request.get('task') == 'assistcluedo_scenario_texts':
       },
     }, sys.stdout)
 else:
+    doc_type = request['document_type']
+    if doc_type == 'sms':
+        text = '20:27  Alex: Hi! Are you still there?\\n20:28  Blake: Yes. Keep it quiet.'
+    elif doc_type == 'email':
+        text = 'From: Alex\\nTo: Blake\\nSubject: Tonight\\nDate: now\\n\\nBlake,\\nWe need to settle this privately.'
+    elif doc_type == 'witness interview':
+        text = 'Detective: What did you notice?\\nWitness: I heard footsteps near the hall.'
+    elif doc_type == 'personal note':
+        text = 'I heard voices again tonight. My hands were shaking when I wrote this.'
+    elif doc_type in {'access-control log', 'gps report', 'receipt', 'call log'}:
+        text = 'time | source | detail\\n20:27 | local llm | formatted source row'
+    else:
+        text = 'Preliminary source excerpt\\nObservation recorded in source format.'
     json.dump({
       'title': request['title'],
-      'text': 'qwen-style local default for ' + request['document_id'],
+      'text': text,
       'facts_expressed': request['mandatory_fact_ids'],
       'entities_mentioned': [],
     }, sys.stdout)

@@ -142,7 +142,7 @@ def _document_menu(
                 _browse_documents(bookmarked, session, session_path)
             else:
                 print("No bookmarked documents.")
-        elif choice == "b":
+        elif choice in {"b", "q"}:
             return
 
 
@@ -156,7 +156,7 @@ def _filter_documents(
     for index, (doc_type, count) in enumerate(doc_types, start=1):
         print(f"{index}. {doc_type} ({count})")
     choice = _input("Choose type number, or b to go back: ").lower()
-    if choice == "b":
+    if choice in {"b", "q"}:
         return
     if not choice.isdigit() or not 1 <= int(choice) <= len(doc_types):
         print("Enter a valid type number.")
@@ -170,7 +170,7 @@ def _browse_documents(documents: list[GeneratedDocument], session: GameSession, 
     while True:
         _list_documents(documents, session)
         choice = _input("Open document number, or b to go back: ").lower()
-        if choice == "b":
+        if choice in {"b", "q"}:
             return
         if not choice.isdigit() or not 1 <= int(choice) <= len(documents):
             print("Enter a valid document number.")
@@ -221,7 +221,7 @@ def _notes(session: GameSession, session_path: Path) -> None:
             text = _input("Note text: ")
             if NOTEBOOK.add_note(session, text):
                 SAVE_GAME.save(session_path, session)
-        elif choice == "b":
+        elif choice in {"b", "q"}:
             return
 
 

@@ -68,6 +68,12 @@ and `openai` providers. All LLM outputs must be structured JSON and are validate
 world content must preserve entity IDs and uniqueness, documents must express mandatory facts without forbidden
 facts, and generated prose is rejected if it looks like a third-person investigative summary.
 
+Document text is driven by seeded documentary profiles rather than one fixed template per document type. For
+example, an `sms` may be a short exchange, a single exported SMS, or a phone notification preview; an `email`
+may be personal, internal, or a follow-up. The selected profile is exposed as visible document metadata under
+`source_profile`, and the LLM prompt receives the profile's structure, register, formatting conventions,
+realistic imperfections, plausible contents, and forbidden contents.
+
 For `local-llm`, set `ASSISTCLUEDO_LOCAL_LLM_COMMAND` to a command that reads the JSON prompt on stdin and
 returns the structured JSON document on stdout. For example, point it to a wrapper around Qwen through Ollama,
 llama.cpp, or vLLM:

@@ -11,6 +11,7 @@ from assistcluedo.framework.models import (
 )
 from assistcluedo.framework.pack import Pack
 from assistcluedo.framework.textgen import (
+    DocumentProfileCatalog,
     SourceStyleCatalog,
     TextGenerationRequest,
     TextGenerator,
@@ -59,8 +60,10 @@ class DocumentRenderer:
         traces_by_id = {trace.id: trace for trace in traces}
         generator = text_generator or generator_for(provider, fallback=fallback, max_attempts=max_attempts, model=model)
         style_catalog = SourceStyleCatalog()
+        profile_catalog = DocumentProfileCatalog()
         documents = []
         for index, plan in enumerate(plans, start=1):
+            document_id = f"doc_{index:03d}"
             trace = traces_by_id[plan.source_trace_ids[0]]
             source_times = [
                 fact.time
@@ -70,7 +73,7 @@ class DocumentRenderer:
             created_at = max(source_times).isoformat() if source_times else truth.incident_time.isoformat()
             title = pack.document_titles.get(plan.document_type, plan.document_type.title())
             request = TextGenerationRequest(
-                document_id=f"doc_{index:03d}",
+                document_id=document_id,
                 title=title,
                 plan=plan,
                 trace=trace,
@@ -79,11 +82,12 @@ class DocumentRenderer:
                 facts=[facts_by_id[fact_id] for fact_id in plan.mandatory_fact_ids],
                 created_at=created_at,
                 source_style=style_catalog.profile_for(plan.document_type),
+                document_profile=profile_catalog.profile_for(seed, document_id, plan.document_type),
             )
             result = generator.generate(request)
             documents.append(
                 GeneratedDocument(
-                    id=f"doc_{index:03d}",
+                    id=document_id,
                     plan_id=plan.id,
                     title=result.title,
                     text=result.text,
@@ -92,6 +96,7 @@ class DocumentRenderer:
                         "reliability": trace.reliability,
                         "source": plan.source_system_id or "investigation file",
                         "created_at": created_at,
+                        "source_profile": request.document_profile.id,
                         "text_provider": result.provider,
                         "fallback_used": result.fallback_used,
                     },
