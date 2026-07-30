@@ -5,6 +5,8 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from assistcluedo.framework.access import character_can_access_location
 from assistcluedo.framework.api import (
     evaluate_answers,
@@ -38,10 +40,12 @@ from assistcluedo.framework.seed import derive_seed, derive_seeds
 from assistcluedo.framework.textgen import (
     DocumentProfileCatalog,
     FallbackTextGenerator,
+    LocalLLMTextGenerator,
     SourceStyleCatalog,
     TemplateTextGenerator,
     TextGenerationRequest,
     TextGenerationResult,
+    validate_text_generation_result,
 )
 from assistcluedo.framework.timeline import FactEngine, TimelineEngine
 from assistcluedo.framework.traces import TraceGenerator
@@ -361,7 +365,8 @@ def test_template_documents_use_source_specific_realistic_formats() -> None:
         document for document in scenario.documents if document.visible_metadata["type"] == "access-control log"
     )
     assert sms.visible_metadata["source_profile"] in {"personal_sms_exchange", "single_sms", "phone_notification"}
-    assert "Same quiet place" in sms.text or "same quiet place" in sms.text
+    assert any(marker in sms.text for marker in ("quiet", "Come alone", "Keep it between us", "side corridor"))
+    assert "Not the dining room" not in sms.text
     assert "|" in access_log.text
     assert any(marker in access_log.text.lower() for marker in ("granted", " ok", "| ok"))
     assert sms.visible_metadata["text_provider"] == "procedural"
@@ -439,6 +444,91 @@ def test_procedural_documents_include_harmless_realistic_texture() -> None:
     assert any(marker in by_type["personal note"] for marker in ("tea", "clock", "mud", "blue cup", "pencil", "polish"))
     average_lines = sum(len(document.text.splitlines()) for document in scenario.documents) / len(scenario.documents)
     assert average_lines >= 5
+
+
+def test_procedural_documents_do_not_expose_internal_symbolic_ids() -> None:
+    scenario = generate_symbolic_scenario(70, difficulty="easy")
+    visible_text = "\n".join(document.text for document in scenario.documents)
+    assert "fact_" not in visible_text
+    assert "plan_" not in visible_text
+    assert "trace_" not in visible_text
+    assert "dining_room" not in visible_text
+    assert "badge:" not in visible_text
+    access_log = next(document.text for document in scenario.documents if document.visible_metadata["type"] == "access-control log")
+    assert "cardholder" in access_log
+    assert any("|" in line and "-" in line for line in access_log.splitlines())
+
+
+def test_sms_templates_do_not_hardcode_a_room_contradicting_the_scenario() -> None:
+    for seed in range(40, 46):
+        scenario = generate_symbolic_scenario(seed, difficulty="easy")
+        sms = next(document.text for document in scenario.documents if document.visible_metadata["type"] == "sms")
+        assert "Not the dining room" not in sms
+        assert "Same quiet place as before" in sms or "Come alone" in sms or "Keep it between us" in sms
+
+
+def test_source_native_documents_have_profile_specific_artifact_markers() -> None:
+    scenario = generate_symbolic_scenario(71, difficulty="easy")
+    markers = {
+        "sms": ("SMS", "notification", "Mobile extraction"),
+        "email": ("Subject:", "Message-ID:"),
+        "access-control log": ("credential", "cardholder", "|"),
+        "witness interview": ("Statement ref:", "Detective:", "Witness:"),
+        "autopsy report": ("Case ref:", "Chain note:"),
+        "security report": ("export ref:", "System:", "alert id:"),
+        "personal note": ("[recovered from", "I ", "My "),
+        "inventory report": ("Sheet ref:", "Item checks:"),
+        "gps report": ("export ref:", "confidence"),
+        "receipt": ("receipt no:", "terminal:", "clerk"),
+        "call log": ("log ref:", "duration"),
+        "newspaper clipping": ("Publication:", "Column note:", "Clipping filed:"),
+    }
+    by_type = {document.visible_metadata["type"]: document.text for document in scenario.documents}
+    for document_type, expected_markers in markers.items():
+        if document_type in by_type:
+            assert any(marker in by_type[document_type] for marker in expected_markers), document_type
+
+
+def test_text_validation_rejects_internal_id_leaks() -> None:
+    class IdLeakingGenerator:
+        def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
+            return TextGenerationResult(
+                title=request.title,
+                text="From: Alex\nTo: Blake\nSubject: Tonight\n\nRecords include fact_badge_access and badge:secretary.",
+                facts_expressed=list(request.plan.mandatory_fact_ids),
+                entities_mentioned=[],
+                provider="id-leak",
+            )
+
+    scenario = generate_symbolic_scenario(42)
+    plan = next(plan for plan in scenario.document_plans if plan.document_type == "email")
+    trace = next(trace for trace in scenario.traces if trace.id == plan.source_trace_ids[0])
+    facts = [fact for fact in scenario.facts if fact.id in plan.mandatory_fact_ids]
+    request = TextGenerationRequest(
+        document_id="doc_test",
+        title="Test",
+        plan=plan,
+        trace=trace,
+        world=scenario.world,
+        truth=scenario.ground_truth,
+        facts=facts,
+        created_at=scenario.ground_truth.incident_time.isoformat(),
+        source_style=SourceStyleCatalog().profile_for(plan.document_type),
+        document_profile=DocumentProfileCatalog().profile_for(42, "doc_test", plan.document_type),
+    )
+    result = IdLeakingGenerator().generate(request)
+    with pytest.raises(ValueError, match="internal ids"):
+        validate_text_generation_result(request, result)
+
+    snake_case_result = TextGenerationResult(
+        title=request.title,
+        text="From: Alex\nTo: Blake\nSubject: Tonight\n\nThe dining_room controller row is attached.",
+        facts_expressed=list(request.plan.mandatory_fact_ids),
+        entities_mentioned=[],
+        provider="id-leak",
+    )
+    with pytest.raises(ValueError, match="internal ids"):
+        validate_text_generation_result(request, snake_case_result)
 
 
 def test_text_generator_fallback_rejects_invalid_primary_output() -> None:
@@ -559,6 +649,50 @@ def test_content_generator_fallback_rejects_invalid_llm_world_content() -> None:
     assert result.fallback_used is True
 
 
+def test_local_llm_document_prompt_includes_source_native_grounding(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    capture = tmp_path / "prompt.json"
+    script = tmp_path / "capture_llm.py"
+    script.write_text(
+        f"""import json, pathlib, sys
+request = json.loads(sys.stdin.read())
+pathlib.Path({str(capture)!r}).write_text(json.dumps(request), encoding='utf-8')
+json.dump({{
+  'title': request['title'],
+  'text': 'From: Alex\\nTo: Blake\\nSubject: Tonight\\nDate: now\\nMessage-ID: <msg-local@blackwood.local>\\n\\nBlake,\\nWe need to settle this privately.',
+  'facts_expressed': request['mandatory_fact_ids'],
+  'entities_mentioned': [],
+}}, sys.stdout)
+""",
+        encoding="utf-8",
+    )
+    scenario = generate_symbolic_scenario(42)
+    plan = next(plan for plan in scenario.document_plans if plan.document_type == "email")
+    trace = next(trace for trace in scenario.traces if trace.id == plan.source_trace_ids[0])
+    facts = [fact for fact in scenario.facts if fact.id in plan.mandatory_fact_ids]
+    request = TextGenerationRequest(
+        document_id="doc_prompt",
+        title="Prompt Test",
+        plan=plan,
+        trace=trace,
+        world=scenario.world,
+        truth=scenario.ground_truth,
+        facts=facts,
+        created_at=scenario.ground_truth.incident_time.isoformat(),
+        source_style=SourceStyleCatalog().profile_for(plan.document_type),
+        document_profile=DocumentProfileCatalog().profile_for(42, "doc_prompt", plan.document_type),
+    )
+    monkeypatch.setenv("ASSISTCLUEDO_LOCAL_LLM_COMMAND", f"{sys.executable} {script}")
+    generated = LocalLLMTextGenerator().generate(request)
+    assert generated.provider == "local-llm"
+    prompt = json.loads(capture.read_text(encoding="utf-8"))
+    grounding = prompt["source_native_grounding"]
+    assert grounding["rendered_mandatory_facts"]
+    assert "plain_language" in grounding["rendered_mandatory_facts"][0]
+    assert "public_entity_labels" in grounding
+    assert "knowledge_boundary" in grounding
+    assert "public_reference_examples" in grounding
+
+
 def test_local_llm_content_can_drive_world_and_scenario_texts(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     script = tmp_path / "content_llm.py"
     script.write_text(
@@ -609,15 +743,30 @@ elif request.get('task') == 'assistcluedo_scenario_texts':
 else:
     doc_type = request['document_type']
     if doc_type == 'sms':
-        text = '20:27  Alex: Hi! Are you still there?\\n20:28  Blake: Yes. Keep it quiet.'
+        text = 'SMS export\\nFrom: Alex\\nTo: Blake\\nSent: 20:27\\n20:27  Alex: Hi! Are you still there?\\n20:28  Blake: Yes. Keep it quiet.'
     elif doc_type == 'email':
         text = 'From: Alex\\nTo: Blake\\nSubject: Tonight\\nDate: now\\n\\nBlake,\\nWe need to settle this privately.'
     elif doc_type == 'witness interview':
-        text = 'Detective: What did you notice?\\nWitness: I heard footsteps near the hall.'
+        text = 'Statement ref: WIT-LOCAL | audio quality: usable\\nDetective: What did you notice?\\nWitness: I heard footsteps near the hall.'
     elif doc_type == 'personal note':
-        text = 'I heard voices again tonight. My hands were shaking when I wrote this.'
+        text = '[recovered from desk drawer]\\nI heard voices again tonight. My hands were shaking when I wrote this.'
     elif doc_type in {'access-control log', 'gps report', 'receipt', 'call log'}:
-        text = 'time | source | detail\\n20:27 | local llm | formatted source row'
+        if doc_type == 'access-control log':
+            text = 'timestamp | credential | cardholder | door | result\\n20:27 | LLM-2041 | Alex | Hall | granted'
+        elif doc_type == 'gps report':
+            text = 'export ref: LOC-LOCAL | source: device cache\\ntimestamp | handset | estimated area | confidence | note\\n20:27 | Alex handset | Hall | medium | local row'
+        elif doc_type == 'receipt':
+            text = 'receipt no: RCPT-LOCAL | copy: carbon duplicate\\nterminal: service desk\\nline | description | location | clerk\\n01 | signed slip | Hall | desk'
+        else:
+            text = 'log ref: TEL-LOCAL | exchange clock checked after export\\ntime | extension | party | route note | duration\\n20:27 | house line | Alex | routed near Hall | 00:41'
+    elif doc_type == 'inventory report':
+        text = 'Sheet ref: INV-LOCAL | second count: pending\\nItem checks:\\n- Object: usual storage listed as Hall. Shelf label slightly torn.'
+    elif doc_type == 'autopsy report':
+        text = 'Preliminary autopsy note\\nCase ref: ME-LOCAL\\nFindings:\\n- Estimated death window recorded.\\nChain note: worksheet cross-checked.'
+    elif doc_type == 'security report':
+        text = 'Security maintenance ticket\\nexport ref: SEC-LOCAL | retention: rolling buffer\\nSystem: internal camera network\\nStatus notes:\\n- feed loss recorded.'
+    elif doc_type == 'newspaper clipping':
+        text = 'Society column clipping\\nPublication: Local LLM Gazette\\nClipping filed: now\\nColumn note: page edge torn\\nGuests were noticed near the hall.'
     else:
         text = 'Preliminary source excerpt\\nObservation recorded in source format.'
     json.dump({
@@ -659,6 +808,25 @@ def test_document_validator_checks_metadata_and_creation_time() -> None:
     bad_document = replace(document, visible_metadata=bad_metadata)
     issues = DocumentValidator().validate([bad_document], scenario)
     assert any(issue.code == "document_created_before_fact" for issue in issues)
+
+
+def test_document_validator_rejects_visible_internal_ids() -> None:
+    scenario = generate_symbolic_scenario(42)
+    document = scenario.documents[0]
+    bad_document = replace(document, text=f"{document.text}\nraw id: fact_badge_access / dining_room / badge:head_chef")
+    issues = DocumentValidator().validate([bad_document], scenario)
+    assert any(issue.code == "document_internal_id_leak" for issue in issues)
+
+
+def test_document_validator_rejects_summary_like_document_text() -> None:
+    scenario = generate_symbolic_scenario(42)
+    document = next(document for document in scenario.documents if document.visible_metadata["type"] == "email")
+    bad_document = replace(
+        document,
+        text="Subject: Case note\n\nRecords show the culprit had a motive and this indicates responsibility.",
+    )
+    issues = DocumentValidator().validate([bad_document], scenario)
+    assert any(issue.code == "document_source_quality" for issue in issues)
 
 
 def test_document_validator_checks_plan_trace_truth_mode_alignment() -> None:

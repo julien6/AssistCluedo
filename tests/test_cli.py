@@ -395,15 +395,30 @@ def test_cli_framework_regenerate_documents_supports_local_llm_provider(tmp_path
 request = json.loads(sys.stdin.read())
 doc_type = request['document_type']
 if doc_type == 'sms':
-    text = '20:27  Alex: Hi! Are you still there?\\n20:28  Blake: Yes. Keep it quiet.'
+    text = 'SMS export\\nFrom: Alex\\nTo: Blake\\nSent: 20:27\\n20:27  Alex: Hi! Are you still there?\\n20:28  Blake: Yes. Keep it quiet.'
 elif doc_type == 'email':
     text = 'From: Alex\\nTo: Blake\\nSubject: Tonight\\nDate: now\\n\\nBlake,\\nWe need to settle this privately.'
 elif doc_type == 'witness interview':
-    text = 'Detective: What did you notice?\\nWitness: I heard footsteps near the hall.'
+    text = 'Statement ref: WIT-LOCAL | audio quality: usable\\nDetective: What did you notice?\\nWitness: I heard footsteps near the hall.'
 elif doc_type == 'personal note':
-    text = 'I heard voices again tonight. My hands were shaking when I wrote this.'
+    text = '[recovered from desk drawer]\\nI heard voices again tonight. My hands were shaking when I wrote this.'
 elif doc_type in {'access-control log', 'gps report', 'receipt', 'call log'}:
-    text = 'time | source | detail\\n20:27 | local llm | formatted source row'
+    if doc_type == 'access-control log':
+        text = 'timestamp | credential | cardholder | door | result\\n20:27 | LLM-2041 | Alex | Hall | granted'
+    elif doc_type == 'gps report':
+        text = 'export ref: LOC-LOCAL | source: device cache\\ntimestamp | handset | estimated area | confidence | note\\n20:27 | Alex handset | Hall | medium | local row'
+    elif doc_type == 'receipt':
+        text = 'receipt no: RCPT-LOCAL | copy: carbon duplicate\\nterminal: service desk\\nline | description | location | clerk\\n01 | signed slip | Hall | desk'
+    else:
+        text = 'log ref: TEL-LOCAL | exchange clock checked after export\\ntime | extension | party | route note | duration\\n20:27 | house line | Alex | routed near Hall | 00:41'
+elif doc_type == 'inventory report':
+    text = 'Sheet ref: INV-LOCAL | second count: pending\\nItem checks:\\n- Object: usual storage listed as Hall. Shelf label slightly torn.'
+elif doc_type == 'autopsy report':
+    text = 'Preliminary autopsy note\\nCase ref: ME-LOCAL\\nFindings:\\n- Estimated death window recorded.\\nChain note: worksheet cross-checked.'
+elif doc_type == 'security report':
+    text = 'Security maintenance ticket\\nexport ref: SEC-LOCAL | retention: rolling buffer\\nSystem: internal camera network\\nStatus notes:\\n- feed loss recorded.'
+elif doc_type == 'newspaper clipping':
+    text = 'Society column clipping\\nPublication: Local LLM Gazette\\nClipping filed: now\\nColumn note: page edge torn\\nGuests were noticed near the hall.'
 else:
     text = 'Preliminary source excerpt\\nObservation recorded in source format.'
 json.dump({
@@ -484,15 +499,30 @@ elif request.get('task') == 'assistcluedo_scenario_texts':
 else:
     doc_type = request['document_type']
     if doc_type == 'sms':
-        text = '20:27  Alex: Hi! Are you still there?\\n20:28  Blake: Yes. Keep it quiet.'
+        text = 'SMS export\\nFrom: Alex\\nTo: Blake\\nSent: 20:27\\n20:27  Alex: Hi! Are you still there?\\n20:28  Blake: Yes. Keep it quiet.'
     elif doc_type == 'email':
         text = 'From: Alex\\nTo: Blake\\nSubject: Tonight\\nDate: now\\n\\nBlake,\\nWe need to settle this privately.'
     elif doc_type == 'witness interview':
-        text = 'Detective: What did you notice?\\nWitness: I heard footsteps near the hall.'
+        text = 'Statement ref: WIT-LOCAL | audio quality: usable\\nDetective: What did you notice?\\nWitness: I heard footsteps near the hall.'
     elif doc_type == 'personal note':
-        text = 'I heard voices again tonight. My hands were shaking when I wrote this.'
+        text = '[recovered from desk drawer]\\nI heard voices again tonight. My hands were shaking when I wrote this.'
     elif doc_type in {'access-control log', 'gps report', 'receipt', 'call log'}:
-        text = 'time | source | detail\\n20:27 | local llm | formatted source row'
+        if doc_type == 'access-control log':
+            text = 'timestamp | credential | cardholder | door | result\\n20:27 | LLM-2041 | Alex | Hall | granted'
+        elif doc_type == 'gps report':
+            text = 'export ref: LOC-LOCAL | source: device cache\\ntimestamp | handset | estimated area | confidence | note\\n20:27 | Alex handset | Hall | medium | local row'
+        elif doc_type == 'receipt':
+            text = 'receipt no: RCPT-LOCAL | copy: carbon duplicate\\nterminal: service desk\\nline | description | location | clerk\\n01 | signed slip | Hall | desk'
+        else:
+            text = 'log ref: TEL-LOCAL | exchange clock checked after export\\ntime | extension | party | route note | duration\\n20:27 | house line | Alex | routed near Hall | 00:41'
+    elif doc_type == 'inventory report':
+        text = 'Sheet ref: INV-LOCAL | second count: pending\\nItem checks:\\n- Object: usual storage listed as Hall. Shelf label slightly torn.'
+    elif doc_type == 'autopsy report':
+        text = 'Preliminary autopsy note\\nCase ref: ME-LOCAL\\nFindings:\\n- Estimated death window recorded.\\nChain note: worksheet cross-checked.'
+    elif doc_type == 'security report':
+        text = 'Security maintenance ticket\\nexport ref: SEC-LOCAL | retention: rolling buffer\\nSystem: internal camera network\\nStatus notes:\\n- feed loss recorded.'
+    elif doc_type == 'newspaper clipping':
+        text = 'Society column clipping\\nPublication: Local LLM Gazette\\nClipping filed: now\\nColumn note: page edge torn\\nGuests were noticed near the hall.'
     else:
         text = 'Preliminary source excerpt\\nObservation recorded in source format.'
     json.dump({

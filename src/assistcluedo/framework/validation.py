@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from heapq import heappop, heappush
@@ -64,6 +65,17 @@ class DocumentValidator:
             if not document.title.strip() or not document.text.strip():
                 issues.append(ValidationIssue("document_empty", f"{document.id} has empty title or text"))
             plan = plans_by_id[document.plan_id]
+            internal_leaks = _document_internal_id_leaks(document, plan, scenario)
+            if internal_leaks:
+                issues.append(
+                    ValidationIssue(
+                        "document_internal_id_leak",
+                        f"{document.id} exposes internal ids: {sorted(internal_leaks)}",
+                    )
+                )
+            quality_issues = _document_source_quality_issues(document, plan)
+            for issue in quality_issues:
+                issues.append(ValidationIssue("document_source_quality", f"{document.id} {issue}"))
             _validate_document_metadata(document, plan, traces_by_id, facts_by_id, issues)
             plan_traces = [traces_by_id[trace_id] for trace_id in plan.source_trace_ids if trace_id in traces_by_id]
             if plan_traces and any(trace.truth_mode != plan.truth_mode for trace in plan_traces):
@@ -82,6 +94,81 @@ class DocumentValidator:
             if leaked:
                 issues.append(ValidationIssue("document_forbidden_fact", f"{document.id} leaks {sorted(leaked)}"))
         return issues
+
+
+def _document_internal_id_leaks(
+    document: GeneratedDocument,
+    plan: DocumentPlan,
+    scenario: Scenario,
+) -> set[str]:
+    internal_ids = {
+        document.id,
+        document.plan_id,
+        plan.id,
+        *plan.source_trace_ids,
+        *plan.mandatory_fact_ids,
+        *plan.forbidden_fact_ids,
+        *[fact.id for fact in scenario.facts],
+        *[trace.id for trace in scenario.traces],
+        *[character.id for character in scenario.world.characters],
+        *[location.id for location in scenario.world.locations],
+        *[item.id for item in scenario.world.objects],
+    }
+    leaks = {
+        token
+        for token in re.findall(r"\b[a-z][a-z0-9]*_[a-z0-9_]+\b", document.text)
+        if token in internal_ids or token.startswith(("fact_", "doc_", "plan_", "trace_"))
+    }
+    leaks.update(re.findall(r"\bbadge:[a-z][a-z0-9_]*\b", document.text, flags=re.IGNORECASE))
+    return leaks
+
+
+def _document_source_quality_issues(document: GeneratedDocument, plan: DocumentPlan) -> list[str]:
+    text = document.text
+    lowered = text.lower()
+    issues: list[str] = []
+    if any(pattern in lowered for pattern in _DOCUMENT_SUMMARY_PATTERNS):
+        issues.append("uses investigative-summary phrasing instead of source-native content")
+    required_markers = _DOCUMENT_REQUIRED_MARKERS.get(plan.document_type)
+    if required_markers and not any(marker in lowered for marker in required_markers):
+        issues.append(f"does not look like {plan.document_type}")
+    if plan.document_type in {"access-control log", "gps report", "receipt", "call log"} and "|" not in text:
+        issues.append("lacks machine/table row structure")
+    if plan.document_type == "email" and "subject:" not in lowered:
+        issues.append("lacks email subject metadata")
+    if plan.document_type == "sms" and not any(marker in lowered for marker in ("sms", "from:", "sent:", "messages", "notification")):
+        issues.append("lacks recovered message metadata")
+    if len([line for line in text.splitlines() if line.strip()]) < 2:
+        issues.append("is too short to support realistic source context")
+    return issues
+
+
+_DOCUMENT_SUMMARY_PATTERNS = (
+    "records show ",
+    "evidence shows ",
+    "the document proves ",
+    "this indicates ",
+    "the culprit ",
+    "investigators learned ",
+    "appears near ",
+    "appears in a ",
+)
+
+
+_DOCUMENT_REQUIRED_MARKERS: dict[str, tuple[str, ...]] = {
+    "sms": ("sms", "notification", "from:", "sent:", "messages"),
+    "email": ("from:", "to:", "subject:", "message-id:"),
+    "access-control log": ("credential", "cardholder", "controller", "access control"),
+    "witness interview": ("detective:", "witness:", "statement ref:", "recorded:"),
+    "autopsy report": ("case ref:", "findings", "examiner", "chain note:"),
+    "security report": ("export ref:", "system:", "alert id:", "status"),
+    "personal note": ("i ", "my ", "me ", "[recovered from"),
+    "inventory report": ("sheet ref:", "item checks:", "inventory"),
+    "gps report": ("export ref:", "confidence", "handset"),
+    "receipt": ("receipt", "terminal:", "clerk", "counterfoil"),
+    "call log": ("log ref:", "switchboard:", "duration", "extension"),
+    "newspaper clipping": ("publication:", "clipping filed:", "column note:"),
+}
 
 
 def _validate_document_metadata(

@@ -114,13 +114,7 @@ class MockTextGenerator:
     provider = "mock"
 
     def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        return TextGenerationResult(
-            title=request.title,
-            text=f"[mock {request.document_id}] {'; '.join(request.plan.mandatory_fact_ids)}",
-            facts_expressed=list(request.plan.mandatory_fact_ids),
-            entities_mentioned=[],
-            provider=self.provider,
-        )
+        return TemplateTextGenerator(provider=self.provider).generate(request)
 
 
 class OpenAITextGenerator:
@@ -220,6 +214,9 @@ def validate_text_generation_result(request: TextGenerationRequest, result: Text
     for pattern in _SUMMARY_ANTI_PATTERNS:
         if pattern in text:
             raise ValueError(f"Generated document uses summary-style wording: {pattern}")
+    leaked_ids = _internal_id_leaks(result.text, request)
+    if leaked_ids:
+        raise ValueError(f"Generated document exposes internal ids: {sorted(leaked_ids)}")
     _validate_source_shape(request, result.text)
     expressed = set(result.facts_expressed)
     mandatory = set(request.plan.mandatory_fact_ids)
@@ -251,30 +248,30 @@ def _base_generator(provider: str, model: str) -> TextGenerator:
 def _template_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Random) -> list[str]:
     document_type = request.plan.document_type
     if document_type == "sms":
-        return _sms_lines(request, facts, rng)
+        return _finalize_template_lines(request, _sms_lines(request, facts, rng), rng)
     if document_type == "email":
-        return _email_lines(request, facts, rng)
+        return _finalize_template_lines(request, _email_lines(request, facts, rng), rng)
     if document_type == "access-control log":
-        return _access_log_lines(request, facts, rng)
+        return _finalize_template_lines(request, _access_log_lines(request, facts, rng), rng)
     if document_type == "witness interview":
-        return _witness_lines(request, facts, rng)
+        return _finalize_template_lines(request, _witness_lines(request, facts, rng), rng)
     if document_type == "autopsy report":
-        return _autopsy_lines(request, facts, rng)
+        return _finalize_template_lines(request, _autopsy_lines(request, facts, rng), rng)
     if document_type == "security report":
-        return _security_lines(request, facts, rng)
+        return _finalize_template_lines(request, _security_lines(request, facts, rng), rng)
     if document_type == "personal note":
-        return _personal_note_lines(request, facts, rng)
+        return _finalize_template_lines(request, _personal_note_lines(request, facts, rng), rng)
     if document_type == "inventory report":
-        return _inventory_lines(request, facts, rng)
+        return _finalize_template_lines(request, _inventory_lines(request, facts, rng), rng)
     if document_type == "gps report":
-        return _gps_lines(request, facts, rng)
+        return _finalize_template_lines(request, _gps_lines(request, facts, rng), rng)
     if document_type == "receipt":
-        return _receipt_lines(request, facts, rng)
+        return _finalize_template_lines(request, _receipt_lines(request, facts, rng), rng)
     if document_type == "call log":
-        return _call_log_lines(request, facts, rng)
+        return _finalize_template_lines(request, _call_log_lines(request, facts, rng), rng)
     if document_type == "newspaper clipping":
-        return _newspaper_lines(request, facts, rng)
-    return _generic_lines(request, facts)
+        return _finalize_template_lines(request, _newspaper_lines(request, facts, rng), rng)
+    return _finalize_template_lines(request, _generic_lines(request, facts), rng)
 
 
 def _sms_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Random) -> list[str]:
@@ -283,6 +280,17 @@ def _sms_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Rand
         sender = entity_name(request.world, fact.subject)
         recipient = entity_name(request.world, str(fact.object))
         time = _time(fact)
+        meeting_hint = rng.choice([
+            "Away from the table",
+            "Not where everyone can see us",
+            "Use the side corridor",
+            "Somewhere quieter than the speeches",
+        ])
+        follow_meeting = rng.choice([
+            "Same quiet place as before.",
+            "Keep it between us until I explain.",
+            "Come alone if you can.",
+        ])
         if request.document_profile.id == "single_sms":
             opener = rng.choice(["Hi.", "Are you still there?", "Need a minute."])
             followup = rng.choice([
@@ -297,7 +305,7 @@ def _sms_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Rand
                 f"Sent: {time}",
                 f"Device: {rng.choice(['kitchen charging shelf', 'hallway coat stand', 'guest-room night table'])}",
                 f"Extraction note: {rng.choice(['screen glass cracked at lower edge', 'message recovered from notification cache', 'thread muted after delivery'])}",
-                f"{opener} Not the dining room. Same quiet place as before. I need you to hear this from me.",
+                f"{opener} {meeting_hint}. {follow_meeting} I need you to hear this from me.",
                 followup,
             ]
         if request.document_profile.id == "phone_notification":
@@ -310,7 +318,7 @@ def _sms_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Rand
                 "Phone notification preview",
                 f"{time} - {sender}",
                 f"App: Messages | Focus mode: {rng.choice(['off', 'personal', 'sleep schedule disabled'])}",
-                "Hi - still in the house? Slip away before they notice. Same quiet place as before.",
+                f"Hi - still inside? Slip away before they notice. {follow_meeting}",
                 preview_tail,
             ]
         return [
@@ -319,8 +327,8 @@ def _sms_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Rand
             f"{time}  {recipient}: {rng.choice(['Yes.', 'For now.', 'Still here.'])} Dinner has turned into speeches.",
             f"{time}  {sender}: {rng.choice(['Good.', 'Keep your voice down.', 'Leave your glass if anyone asks.'])}",
             f"{time}  {recipient}: {rng.choice(['People are still in the hall.', 'The coffee is only just being served.', 'Someone is at the piano again.'])}",
-            f"{time}  {sender}: Then slip away before they notice. Not the dining room.",
-            f"{time}  {sender}: Same quiet place as before. I need you to hear this from me.",
+            f"{time}  {sender}: Then slip away before they notice. {meeting_hint}.",
+            f"{time}  {sender}: {follow_meeting} I need you to hear this from me.",
             f"{time}  {recipient}: {rng.choice(['Fine.', 'Make it quick.', 'I am not waiting long.'])}",
         ]
     return _generic_lines(request, facts)
@@ -356,7 +364,7 @@ def _email_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Ra
                 f"To: {recipient}",
                 "Subject: Following up",
                 f"Date: {request.created_at}",
-                f"Message-ID: <followup-{request.document_id}@blackwood.local>",
+                f"Message-ID: <followup-{_source_ref(request, 'MSG').lower()}@blackwood.local>",
                 "",
                 f"{recipient},",
                 "",
@@ -381,7 +389,7 @@ def _email_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: Ra
             f"But I will not keep swallowing the consequences of {fact.object}.",
             "You know exactly who was hurt by that decision, even if you prefer to call it old business.",
             "I am tired of smiling over cold coffee while you change the subject.",
-            "The blue folder is still where you left it, which says enough.",
+                "The papers you left behind say enough without my spelling it out.",
             "",
             "We should settle it before the house starts listening.",
             "",
@@ -396,27 +404,30 @@ def _access_log_lines(request: TextGenerationRequest, facts: dict[str, Fact], rn
             "Badge audit trail",
             f"controller={rng.choice(['AC-NORTH-02', 'AC-HALL-1', 'MANOR-EDGE'])} export=partial",
             f"operator={rng.choice(['night desk', 'auto-export', 'E.M.'])} checksum={rng.choice(['ok', 'pending', 'manual'])}",
-            "date_time | badge_id | zone | direction | status",
+            "date_time | credential | cardholder | zone | direction | status",
         ]
     else:
         rows = [
             "ACCESS CONTROL EXPORT",
             f"panel: {rng.choice(['west service rack', 'main hall controller', 'office subpanel'])}",
             f"batch: {rng.choice(['A17', 'B04', 'K22'])} | clock drift: {rng.choice(['+00:12', '-00:04', '+00:00'])}",
-            "timestamp | credential | door | result",
+            "timestamp | credential | cardholder | door | result",
         ]
     for fact in request.facts:
         if fact.id == "fact_badge_access":
+            cardholder = entity_name(request.world, fact.subject)
+            credential = _public_credential_code(request.world, fact.subject)
+            door = entity_name(request.world, str(fact.object))
             if request.document_profile.id == "badge_audit_trail":
                 rows.append(
-                    f"{request.created_at} | badge:{fact.subject} | {entity_name(request.world, str(fact.object))} | IN | OK"
+                    f"{request.created_at} | {credential} | {cardholder} | {door} | IN | OK"
                 )
-                rows.append(f"{request.created_at} | badge:{fact.subject} | controller | latch-check | PASS")
+                rows.append(f"{request.created_at} | {credential} | {cardholder} | controller | latch-check | PASS")
             else:
                 rows.append(
-                    f"{_time(fact)} | badge:{fact.subject} | {entity_name(request.world, str(fact.object))} | granted"
+                    f"{_time(fact)} | {credential} | {cardholder} | {door} | granted"
                 )
-                rows.append(f"{_time(fact)} | badge:{fact.subject} | controller heartbeat | accepted")
+                rows.append(f"{_time(fact)} | {credential} | {cardholder} | controller heartbeat | accepted")
     return rows
 
 
@@ -651,6 +662,34 @@ def _generic_lines(request: TextGenerationRequest, facts: dict[str, Fact]) -> li
     return rows
 
 
+def _finalize_template_lines(request: TextGenerationRequest, lines: list[str], rng: Random) -> list[str]:
+    rows = [line for line in lines if line is not None]
+    document_type = request.plan.document_type
+    if document_type == "sms" and not any("Extraction" in line or "export" in line.lower() or "preview" in line.lower() for line in rows[:3]):
+        rows.insert(0, f"Mobile extraction ref: {_source_ref(request, 'MOB')}")
+    elif document_type == "email" and not any(line.lower().startswith("message-id:") for line in rows):
+        rows.insert(min(len(rows), 4), f"Message-ID: <{_source_ref(request, 'msg').lower()}@blackwood.local>")
+    elif document_type == "witness interview" and not any("Statement ref" in line for line in rows[:3]):
+        rows.insert(1, f"Statement ref: {_source_ref(request, 'WIT')} | audio quality: {rng.choice(['usable', 'low voices', 'corridor noise'])}")
+    elif document_type == "autopsy report" and not any("Chain note" in line for line in rows):
+        rows.append(f"Chain note: photographs and worksheet cross-checked under {_source_ref(request, 'ME')}.")
+    elif document_type == "security report" and not any("export ref" in line.lower() for line in rows):
+        rows.insert(1, f"export ref: {_source_ref(request, 'SEC')} | retention: rolling buffer")
+    elif document_type == "personal note" and not any("[" in line for line in rows[:2]):
+        rows.insert(0, f"[recovered from {rng.choice(['desk drawer', 'blotter fold', 'coat pocket', 'waste-paper basket'])}]")
+    elif document_type == "inventory report" and not any("sheet ref" in line.lower() for line in rows[:3]):
+        rows.insert(1, f"Sheet ref: {_source_ref(request, 'INV')} | second count: {rng.choice(['pending', 'initialled', 'not required'])}")
+    elif document_type == "gps report" and not any("export ref" in line.lower() for line in rows[:3]):
+        rows.insert(1, f"export ref: {_source_ref(request, 'LOC')} | source: device cache")
+    elif document_type == "receipt" and not any("receipt no" in line.lower() for line in rows[:3]):
+        rows.insert(1, f"receipt no: {_source_ref(request, 'RCPT')} | copy: carbon duplicate")
+    elif document_type == "call log" and not any("log ref" in line.lower() for line in rows[:3]):
+        rows.insert(1, f"log ref: {_source_ref(request, 'TEL')} | exchange clock checked after export")
+    elif document_type == "newspaper clipping" and not any("publication" in line.lower() for line in rows[:3]):
+        rows.insert(1, f"Publication: {rng.choice(['Blackwood Gazette', 'County Social Notes', 'Evening Parish Ledger'])}")
+    return rows
+
+
 def _fact_sentence(world: World, fact: Fact, truth: GroundTruth) -> str:
     t = f" at {_time(fact)}" if fact.time else ""
     if fact.id == "fact_badge_access":
@@ -666,6 +705,38 @@ def _fact_sentence(world: World, fact: Fact, truth: GroundTruth) -> str:
 
 def _time(fact: Fact) -> str:
     return f"{fact.time:%H:%M}" if fact.time else "time not recorded"
+
+
+def _source_ref(request: TextGenerationRequest, prefix: str) -> str:
+    digest = sha256(f"{request.document_id}:{request.plan.document_type}:{request.created_at}:{prefix}".encode()).hexdigest()
+    return f"{prefix}-{digest[:2].upper()}{digest[2:6].upper()}"
+
+
+def _public_credential_code(world: World, character_id: str) -> str:
+    name = entity_name(world, character_id)
+    initials = "".join(part[0] for part in name.replace(".", " ").split() if part[:1].isalpha())[:3].upper() or "CRD"
+    digest = sha256(f"credential:{character_id}:{name}".encode()).hexdigest()
+    return f"{initials}-{int(digest[:6], 16) % 9000 + 1000}"
+
+
+def _internal_id_leaks(text: str, request: TextGenerationRequest) -> set[str]:
+    internal_ids = {
+        request.document_id,
+        request.plan.id,
+        request.trace.id,
+        *request.plan.mandatory_fact_ids,
+        *request.plan.forbidden_fact_ids,
+        *[item.id for item in request.world.characters],
+        *[item.id for item in request.world.locations],
+        *[item.id for item in request.world.objects],
+    }
+    leaks = {
+        item
+        for item in re.findall(r"\b[a-z][a-z0-9]*_[a-z0-9_]+\b", text)
+        if item in internal_ids or item.startswith(("fact_", "doc_", "plan_", "trace_"))
+    }
+    leaks.update(re.findall(r"\bbadge:[a-z][a-z0-9_]*\b", text, flags=re.IGNORECASE))
+    return leaks
 
 
 def _entities_for(world: World, facts: list[Fact]) -> list[str]:
@@ -696,9 +767,22 @@ def _llm_prompt(request: TextGenerationRequest) -> str:
             "Use everyday texture, institutional formatting, hesitation, omission, or terse system language as appropriate.",
             "Never add a new suspect, location, object, event, time, motive, relationship, confession, or conclusion.",
             "Never identify the culprit unless a mandatory fact explicitly says so.",
-            "Do not expose internal IDs in the document text; IDs may appear only in facts_expressed and entities_mentioned.",
+            "Do not expose internal IDs in the document text; use public-looking reference numbers, names, labels, extensions, or device codes instead.",
+            "Internal IDs may appear only in facts_expressed and entities_mentioned.",
             "Return JSON only, with no markdown and no surrounding commentary.",
         ],
+        "source_native_examples": {
+            "good": [
+                "20:31 | EFM-4821 | Edmund Fenwick | Library | granted",
+                "Detective: You are sure about the room? Witness: Sure enough to remember the tray rattling.",
+                "Message-ID: <msg-a1842@blackwood.local>",
+            ],
+            "bad": [
+                "fact_badge_access proves the culprit entered the room",
+                "badge:secretary | dining_room | granted",
+                "Records show the suspect had a motive and killed the victim",
+            ],
+        },
         "harmless_contextual_texture": {
             "purpose": "Add small realistic details that make the document feel lived-in without adding new clues.",
             "allowed": [
@@ -734,6 +818,7 @@ def _llm_prompt(request: TextGenerationRequest) -> str:
             "forbidden_behavior": request.source_style.forbidden_behavior,
             "target_length": request.source_style.target_length,
         },
+        "source_native_grounding": _source_native_grounding(request),
         "output_rules": {
             "title": "Use the supplied title unless the source format naturally requires a tiny variation.",
             "text": "Output only the document content. Include realistic harmless texture. No analysis of the case. No hidden oracle summary.",
@@ -773,6 +858,69 @@ def _llm_prompt(request: TextGenerationRequest) -> str:
         },
     }
     return json.dumps(payload, indent=2, sort_keys=True)
+
+
+def _source_native_grounding(request: TextGenerationRequest) -> dict[str, Any]:
+    return {
+        "document_type": request.plan.document_type,
+        "probable_source": request.plan.source_system_id or request.document_profile.family,
+        "probable_author": _entity_label(request.world, request.plan.author_id) if request.plan.author_id else None,
+        "public_entity_labels": {
+            "characters": {character.id: character.name for character in request.world.characters},
+            "locations": {location.id: location.name for location in request.world.locations},
+            "objects": {item.id: item.name for item in request.world.objects},
+        },
+        "rendered_mandatory_facts": [_render_fact_for_prompt(request, fact) for fact in request.facts],
+        "public_reference_examples": _public_reference_examples(request),
+        "knowledge_boundary": _knowledge_boundary(request),
+    }
+
+
+def _render_fact_for_prompt(request: TextGenerationRequest, fact: Fact) -> dict[str, Any]:
+    return {
+        "fact_id": fact.id,
+        "plain_language": _fact_sentence(request.world, fact, request.truth),
+        "subject_label": _entity_label(request.world, fact.subject),
+        "predicate": fact.predicate.replace("_", " "),
+        "object_label": _entity_label(request.world, str(fact.object)),
+        "time": _time(fact) if fact.time else None,
+        "location_label": _entity_label(request.world, fact.location_id),
+        "polarity": fact.polarity,
+    }
+
+
+def _entity_label(world: World, entity_id: str | None) -> str | None:
+    if entity_id is None:
+        return None
+    known = {
+        **{character.id: character.name for character in world.characters},
+        **{location.id: location.name for location in world.locations},
+        **{item.id: item.name for item in world.objects},
+    }
+    return known.get(entity_id, entity_id)
+
+
+def _public_reference_examples(request: TextGenerationRequest) -> dict[str, str]:
+    examples = {
+        "document_reference": _source_ref(request, "SRC"),
+        "message_reference": _source_ref(request, "MSG"),
+    }
+    character_id = next((fact.subject for fact in request.facts if _entity_label(request.world, fact.subject)), None)
+    if character_id:
+        examples["credential_code"] = _public_credential_code(request.world, character_id)
+    return examples
+
+
+def _knowledge_boundary(request: TextGenerationRequest) -> str:
+    if request.plan.document_type in {"access-control log", "gps report", "receipt", "call log", "security report"}:
+        return "The source can report system rows, timestamps, labels, confidence, and status only; it cannot infer motive, intent, guilt, or hidden causality."
+    if request.plan.document_type == "witness interview":
+        return "The witness can report perception, uncertainty, memory, and corrections only; do not make the witness omniscient."
+    if request.plan.document_type in {"sms", "email", "personal note"}:
+        return "The writer can use shared context and emotion, but cannot narrate the case, reveal oracle facts, or explain why the clue matters."
+    if request.plan.document_type == "autopsy report":
+        return "The medical source can describe physical consistency and time windows only; it cannot assign legal responsibility."
+    return "Stay inside what this source could plausibly contain at creation time."
 
 
 def _result_from_json(raw: str, provider: str) -> TextGenerationResult:
