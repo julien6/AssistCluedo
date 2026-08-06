@@ -46,7 +46,7 @@ def generate_symbolic_scenario(
     events = TimelineEngine().generate(seed, world, truth, difficulty_config)
     facts = FactEngine().generate(world, truth, events)
     traces = TraceGenerator().generate(seed, facts, events, truth)
-    plans = DocumentPlanner().generate(traces)
+    plans = DocumentPlanner().generate(traces, events, world)
     documents = DocumentRenderer().generate(
         seed,
         world,

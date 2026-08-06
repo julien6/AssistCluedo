@@ -6,6 +6,7 @@ from typing import Any
 from assistcluedo.framework.difficulty import DifficultyConfig
 from assistcluedo.framework.models import (
     Character,
+    Device,
     Location,
     Relationship,
     TravelEdge,
@@ -32,6 +33,7 @@ class WorldGenerator:
             rng,
         )
         location_ids = {str(item["id"]) for item in selected_locations}
+        fallback_location_id = "office" if "office" in location_ids else min(location_ids)
         selected_objects = [item for item in pack.objects if str(item["location_id"]) in location_ids]
         characters = [
             Character(
@@ -39,6 +41,11 @@ class WorldGenerator:
                 name=str(item["name"]),
                 public_role=str(item["public_role"]),
                 private_role=None,
+                current_location_id=(
+                    str(item["home_location_id"])
+                    if str(item.get("home_location_id", "")) in location_ids
+                    else fallback_location_id
+                ),
                 capabilities=[str(capability) for capability in item.get("capabilities", [])],
                 relationship_ids=[],
             )
@@ -76,6 +83,7 @@ class WorldGenerator:
             )
         ]
         travel_edges = _travel_edges_for(pack, locations)
+        devices = _devices_for(pack, characters, location_ids, fallback_location_id)
         return World(
             id=pack.id,
             characters=characters,
@@ -83,6 +91,7 @@ class WorldGenerator:
             objects=objects,
             relationships=relationships,
             travel_edges=travel_edges,
+            devices=devices,
         )
 
 
@@ -94,6 +103,39 @@ def _select_required_plus_random(
     remaining.sort(key=lambda item: str(item["id"]))
     rng.shuffle(remaining)
     return (required + remaining)[:count]
+
+
+def _devices_for(
+    pack: Pack,
+    characters: list[Character],
+    location_ids: set[str],
+    fallback_location_id: str,
+) -> list[Device]:
+    devices = [
+        Device(
+            id=str(item["id"]),
+            name=str(item["name"]),
+            device_type=str(item["device_type"]),
+            location_id=(
+                str(item["location_id"]) if str(item["location_id"]) in location_ids else fallback_location_id
+            ),
+            capabilities=[str(capability) for capability in item.get("capabilities", [])],
+        )
+        for item in pack.devices
+    ]
+    devices.extend(
+        # Name stays generic (not derived from character.name) because devices are built
+        # before apply_world_content() may rename characters; the owner is looked up by id.
+        Device(
+            id=f"phone_{character.id}",
+            name="Personal phone",
+            device_type="phone",
+            location_id=character.current_location_id,
+            owner_character_id=character.id,
+        )
+        for character in characters
+    )
+    return devices
 
 
 def _travel_edges_for(pack: Pack, locations: list[Location]) -> list[TravelEdge]:

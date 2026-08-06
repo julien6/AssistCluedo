@@ -16,6 +16,7 @@ class Pack:
     characters: list[dict[str, Any]]
     locations: list[dict[str, Any]]
     objects: list[dict[str, Any]]
+    devices: list[dict[str, Any]]
     motives: list[str]
     document_titles: dict[str, str]
     travel_edges: list[tuple[str, str, int]]
@@ -42,6 +43,7 @@ def load_pack(pack_id: str = "classic_manor", pack_root: Path | None = None) -> 
         characters=list(data["characters"]),
         locations=list(data["locations"]),
         objects=list(data["objects"]),
+        devices=list(data.get("devices", [])),
         motives=[str(item) for item in data["motives"]],
         document_titles={str(key): str(value) for key, value in data["document_titles"].items()},
         travel_edges=[

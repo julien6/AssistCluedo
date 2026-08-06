@@ -292,6 +292,7 @@ class ScenarioValidator:
     def validate(self, scenario: Scenario) -> ValidationReport:
         issues: list[ValidationIssue] = []
         self._world_references(scenario, issues)
+        self._devices(scenario, issues)
         self._travel_graph(scenario, issues)
         self._timeline_constraints(scenario, issues)
         self._trace_references(scenario, issues)
@@ -339,6 +340,15 @@ class ScenarioValidator:
                 self._issue(issues, "unknown_relationship_source", f"{relationship.id} has unknown source")
             if relationship.target_character_id not in character_ids:
                 self._issue(issues, "unknown_relationship_target", f"{relationship.id} has unknown target")
+
+    def _devices(self, scenario: Scenario, issues: list[ValidationIssue]) -> None:
+        location_ids = {loc.id for loc in scenario.world.locations}
+        character_ids = {char.id for char in scenario.world.characters}
+        for device in scenario.world.devices:
+            if device.location_id not in location_ids:
+                self._issue(issues, "unknown_device_location", f"{device.id} at unknown location {device.location_id}")
+            if device.owner_character_id is not None and device.owner_character_id not in character_ids:
+                self._issue(issues, "unknown_device_owner", f"{device.id} has unknown owner {device.owner_character_id}")
 
     def _travel_graph(self, scenario: Scenario, issues: list[ValidationIssue]) -> None:
         location_ids = {loc.id for loc in scenario.world.locations}
@@ -486,6 +496,9 @@ class ScenarioValidator:
     def _document_plans(self, scenario: Scenario, issues: list[ValidationIssue]) -> None:
         trace_ids = {trace.id for trace in scenario.traces}
         fact_ids = {fact.id for fact in scenario.facts}
+        location_ids = {loc.id for loc in scenario.world.locations}
+        device_ids = {device.id for device in scenario.world.devices}
+        character_ids = {char.id for char in scenario.world.characters}
         for plan in scenario.document_plans:
             if not plan.source_trace_ids:
                 self._issue(issues, "plan_without_trace", f"{plan.id} has no trace")
@@ -495,6 +508,28 @@ class ScenarioValidator:
             for fact_id in plan.mandatory_fact_ids + plan.forbidden_fact_ids:
                 if fact_id not in fact_ids:
                     self._issue(issues, "plan_unknown_fact", f"{plan.id} references {fact_id}")
+            if not plan.retrieval_location_id:
+                self._issue(issues, "plan_without_retrieval_location", f"{plan.id} has no retrieval location")
+            elif plan.retrieval_location_id not in location_ids:
+                self._issue(
+                    issues,
+                    "plan_unknown_retrieval_location",
+                    f"{plan.id} references unknown location {plan.retrieval_location_id}",
+                )
+            if plan.source_device_id is not None and plan.source_device_id not in device_ids:
+                self._issue(issues, "plan_unknown_device", f"{plan.id} references unknown device {plan.source_device_id}")
+            if plan.witness_character_id is not None and plan.witness_character_id not in character_ids:
+                self._issue(
+                    issues,
+                    "plan_unknown_witness",
+                    f"{plan.id} references unknown witness {plan.witness_character_id}",
+                )
+            if plan.source_device_id is not None and plan.witness_character_id is not None:
+                self._issue(
+                    issues,
+                    "plan_ambiguous_source",
+                    f"{plan.id} has both a device and a witness source",
+                )
 
     def _documents(self, scenario: Scenario, issues: list[ValidationIssue]) -> None:
         issues.extend(DocumentValidator().validate(scenario.documents, scenario))

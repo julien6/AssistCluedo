@@ -57,8 +57,8 @@ def generate_traces(
     return TraceGenerator().generate(seed, facts, events, ground_truth)
 
 
-def generate_document_plans(traces: list[Trace]) -> list[DocumentPlan]:
-    return DocumentPlanner().generate(traces)
+def generate_document_plans(traces: list[Trace], events: list[Event], world: World) -> list[DocumentPlan]:
+    return DocumentPlanner().generate(traces, events, world)
 
 
 def generate_documents(

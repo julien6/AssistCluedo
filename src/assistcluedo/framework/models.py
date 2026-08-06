@@ -66,6 +66,7 @@ class Character(Serializable):
     name: str
     public_role: str
     private_role: str | None
+    current_location_id: str = ""
     attributes: dict[str, JsonScalar] = field(default_factory=dict)
     capabilities: list[str] = field(default_factory=list)
     relationship_ids: list[str] = field(default_factory=list)
@@ -88,6 +89,16 @@ class WorldObject(Serializable):
     location_id: str | None
     owner_id: str | None
     attributes: dict[str, JsonScalar] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Device(Serializable):
+    id: str
+    name: str
+    device_type: str
+    location_id: str
+    owner_character_id: str | None = None
+    capabilities: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -152,6 +163,9 @@ class DocumentPlan(Serializable):
     author_id: str | None
     source_system_id: str | None
     truth_mode: str
+    retrieval_location_id: str = ""
+    source_device_id: str | None = None
+    witness_character_id: str | None = None
     style: dict[str, JsonScalar] = field(default_factory=dict)
 
 
@@ -192,6 +206,7 @@ class World(Serializable):
     objects: list[WorldObject]
     relationships: list[Relationship]
     travel_edges: list[TravelEdge] = field(default_factory=list)
+    devices: list[Device] = field(default_factory=list)
     attributes: dict[str, JsonScalar] = field(default_factory=dict)
 
 

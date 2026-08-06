@@ -6,42 +6,52 @@ characters:
   - id: general
     name: General Hargreaves
     public_role: retired general
+    home_location_id: office
     capabilities: [move, speak, use_phone, command_staff, access_office, access_all_rooms]
   - id: head_chef
     name: Marta Bell
     public_role: head chef
+    home_location_id: kitchen
     capabilities: [move, speak, use_phone, access_service_rooms]
   - id: butler
     name: Simon Vale
     public_role: butler
+    home_location_id: entrance_hall
     capabilities: [move, speak, use_phone, access_all_rooms]
   - id: doctor
     name: Dr. Elaine Cross
     public_role: family doctor
+    home_location_id: library
     capabilities: [move, speak, use_phone, medical_assessment]
   - id: niece
     name: Clara Hargreaves
     public_role: niece
+    home_location_id: conservatory
     capabilities: [move, speak, use_phone]
   - id: gardener
     name: Noah Reed
     public_role: gardener
+    home_location_id: garden
     capabilities: [move, speak, use_phone, access_grounds]
   - id: secretary
     name: Evelyn Marsh
     public_role: private secretary
+    home_location_id: office
     capabilities: [move, speak, use_phone, access_office]
   - id: chauffeur
     name: Julian Price
     public_role: chauffeur
+    home_location_id: garage
     capabilities: [move, speak, use_phone, access_garage]
   - id: housekeeper
     name: Iris Quinn
     public_role: housekeeper
+    home_location_id: servants_hall
     capabilities: [move, speak, use_phone, access_service_rooms]
   - id: colonel
     name: Colonel Ames
     public_role: old army friend
+    home_location_id: dining_room
     capabilities: [move, speak, use_phone]
 locations:
   - id: entrance_hall
@@ -84,6 +94,14 @@ locations:
     name: Servants' Hall
     location_type: service
     access: service
+  - id: security_office
+    name: Security Office
+    location_type: service
+    access: service
+  - id: archive
+    name: Records Archive
+    location_type: service
+    access: service
 objects:
   - id: kitchen_knife
     name: Kitchen knife
@@ -108,6 +126,23 @@ objects:
   - id: service_revolver
     name: Service revolver
     object_type: firearm
+    location_id: office
+devices:
+  - id: badge_reader
+    name: Badge-Access Reader
+    device_type: badge-reader
+    location_id: security_office
+  - id: camera_system
+    name: Camera Security Console
+    device_type: camera-system
+    location_id: security_office
+  - id: evidence_cabinet
+    name: Evidence Cabinet
+    device_type: archive-cabinet
+    location_id: archive
+  - id: office_computer
+    name: Office Computer
+    device_type: computer
     location_id: office
 motives:
   - blackmail over forged household accounts
@@ -141,3 +176,5 @@ travel_edges:
   - [conservatory, garden, 2]
   - [library, office, 2]
   - [garage, garden, 4]
+  - [entrance_hall, security_office, 2]
+  - [servants_hall, archive, 2]
