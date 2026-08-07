@@ -30,7 +30,7 @@ class TraceGenerator:
             Trace(
                 "trace_alibi",
                 "witness interview",
-                ["ev_006"],
+                ["ev_006_alibi_witness"],
                 ["fact_exculpated_alibi"],
                 0.85,
                 0.9,
@@ -50,7 +50,7 @@ class TraceGenerator:
             Trace(
                 "trace_false_statement",
                 "witness interview",
-                ["ev_010"],
+                ["ev_010_false_statement_witness"],
                 ["fact_false_statement"],
                 0.35,
                 0.8,

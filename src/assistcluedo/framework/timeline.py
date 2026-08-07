@@ -24,9 +24,6 @@ class TimelineEngine:
         other_chars = [
             char_id for char_id in all_chars if char_id not in {truth.culprit_id, truth.victim_id}
         ]
-        exculpated_location = _exculpating_location_for(
-            characters_by_id[truth.exculpated_character_id], world, truth.location_id
-        )
         argument_location = (
             "office"
             if "office" in accessible_location_ids(characters_by_id[truth.false_lead_character_id], world)
@@ -34,6 +31,81 @@ class TimelineEngine:
         )
         hide_location = _hide_location_for(characters_by_id[truth.culprit_id], world, truth.location_id)
         discoverer_id = _discoverer_for(world, truth)
+        # The alibi witness must be someone with no other role in the timeline's tightly scripted
+        # events (not the culprit, victim, false lead, exculpated character, discoverer, or
+        # doctor) so their single "I saw them there" appointment can't collide with a fixed event
+        # elsewhere. This mirrors `critical_actors`/`available_actors` below, computed early
+        # because the alibi event needs to exist before that later block runs.
+        critical_actors = {
+            truth.culprit_id,
+            truth.false_lead_character_id,
+            truth.exculpated_character_id,
+            discoverer_id,
+            "doctor",
+            truth.victim_id,
+        }
+        strictly_free_actors = sorted(char.id for char in world.characters if char.id not in critical_actors)
+        available_actors = strictly_free_actors or sorted(
+            char.id for char in world.characters if char.id != truth.victim_id
+        )
+        # A fully free actor (no other scripted role) is the ideal alibi witness — nothing else
+        # ties up their schedule. When the cast is too small for one to exist (every character is
+        # already cast in a critical role), fall back to a lightly-scripted role whose own fixed
+        # events sit comfortably away from the alibi's timestamp, rather than the raw "everyone
+        # but the victim" pool (`available_actors`'s own fallback, used below for contextual
+        # filler events), which would risk picking the culprit or exculpated character themselves.
+        alibi_witness_candidates = [
+            char_id for char_id in strictly_free_actors if char_id != truth.exculpated_character_id
+        ]
+        if not alibi_witness_candidates:
+            alibi_witness_candidates = [
+                char_id
+                for char_id in {truth.false_lead_character_id, discoverer_id, "doctor"}
+                if char_id not in {truth.culprit_id, truth.victim_id, truth.exculpated_character_id}
+                and char_id in characters_by_id
+            ]
+        if not alibi_witness_candidates:
+            alibi_witness_candidates = [
+                char_id
+                for char_id in other_chars
+                if char_id != truth.exculpated_character_id
+            ]
+        if not alibi_witness_candidates:
+            alibi_witness_candidates = [
+                char_id for char_id in all_chars if char_id != truth.exculpated_character_id
+            ]
+        alibi_witness_id = rng.choice(sorted(alibi_witness_candidates))
+        exculpated_location = _exculpating_location_for(
+            characters_by_id[truth.exculpated_character_id],
+            world,
+            truth.location_id,
+            co_witness=characters_by_id[alibi_witness_id],
+        )
+        alibi_time = truth.incident_time - timedelta(minutes=5)
+        # Same self-reference problem as the alibi witness: the false statement is about the
+        # false-lead character, so whoever is interviewed about it must not be the false lead
+        # themselves. Unlike the alibi, this event carries no location, so no location-access
+        # check is needed for the witness.
+        false_statement_witness_candidates = [
+            char_id for char_id in strictly_free_actors if char_id != truth.false_lead_character_id
+        ]
+        if not false_statement_witness_candidates:
+            false_statement_witness_candidates = [
+                char_id
+                for char_id in {truth.culprit_id, truth.exculpated_character_id, discoverer_id, "doctor"}
+                if char_id not in {truth.false_lead_character_id, truth.victim_id}
+                and char_id in characters_by_id
+            ]
+        if not false_statement_witness_candidates:
+            false_statement_witness_candidates = [
+                char_id for char_id in other_chars if char_id != truth.false_lead_character_id
+            ]
+        if not false_statement_witness_candidates:
+            false_statement_witness_candidates = [
+                char_id for char_id in all_chars if char_id != truth.false_lead_character_id
+            ]
+        false_statement_witness_id = rng.choice(sorted(false_statement_witness_candidates))
+        false_statement_time = truth.incident_time + timedelta(minutes=18)
         events = [
             Event("ev_001", "arrive", all_chars, [], "dining_room", base, None, [], {}),
             Event(
@@ -86,7 +158,18 @@ class TimelineEngine:
                 [truth.exculpated_character_id],
                 [],
                 exculpated_location,
-                truth.incident_time - timedelta(minutes=5),
+                alibi_time,
+                None,
+                [],
+                {},
+            ),
+            Event(
+                "ev_006_alibi_witness",
+                "witness_observe_alibi",
+                [alibi_witness_id],
+                [truth.exculpated_character_id],
+                exculpated_location,
+                alibi_time,
                 None,
                 [],
                 {},
@@ -130,10 +213,21 @@ class TimelineEngine:
                 [truth.false_lead_character_id],
                 [],
                 None,
-                truth.incident_time + timedelta(minutes=18),
+                false_statement_time,
                 None,
                 [],
                 {"claim": "I saw nothing after dinner."},
+            ),
+            Event(
+                "ev_010_false_statement_witness",
+                "witness_observe_false_statement",
+                [false_statement_witness_id],
+                [truth.false_lead_character_id],
+                None,
+                false_statement_time,
+                None,
+                [],
+                {},
             ),
             Event(
                 "ev_011",
@@ -159,17 +253,6 @@ class TimelineEngine:
             ),
         ]
         event_kinds = ["call", "receipt", "gps_ping", "staff_round", "door_check", "conversation"]
-        critical_actors = {
-            truth.culprit_id,
-            truth.false_lead_character_id,
-            truth.exculpated_character_id,
-            discoverer_id,
-            "doctor",
-            truth.victim_id,
-        }
-        available_actors = sorted(char.id for char in world.characters if char.id not in critical_actors)
-        if not available_actors:
-            available_actors = sorted(char.id for char in world.characters if char.id != truth.victim_id)
         travel_minutes = _shortest_travel_minutes(world)
         per_actor_last = {
             actor_id: (event.start_time, event.location_id)
@@ -386,8 +469,16 @@ def _hide_location_for(culprit, world: World, incident_location_id: str) -> str:
     return accessible[0] if accessible else incident_location_id
 
 
-def _exculpating_location_for(character, world: World, incident_location_id: str) -> str:
-    accessible = sorted(accessible_location_ids(character, world) - {incident_location_id})
+def _exculpating_location_for(
+    character, world: World, incident_location_id: str, co_witness=None
+) -> str:
+    accessible = accessible_location_ids(character, world) - {incident_location_id}
+    if co_witness is not None:
+        shared = accessible & accessible_location_ids(co_witness, world)
+        # Fall back to the character's own accessible set if nothing is shared (should not
+        # happen given public/hall rooms require no capability), so a location is always chosen.
+        accessible = shared or accessible
+    accessible = sorted(accessible)
     if not accessible:
         return incident_location_id
     travel = _shortest_travel_minutes(world)
