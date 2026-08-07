@@ -437,7 +437,12 @@ def _witness_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: 
         f"Recorded: {request.created_at}",
         f"Room note: {rng.choice(['clock audible in corridor', 'tea brought in midway', 'rain against south windows'])}.",
         f"Transcript note: {rng.choice(['several pauses marked only where clear', 'witness asked twice for water', 'recorder placed near green lamp'])}.",
-        "Detective: Please describe only what you personally observed.",
+        # Deliberately NOT a "Detective: ..." line: every witness interview opens on this same
+        # instruction, so if it were formatted as a spoken turn it would always be the first
+        # regex match for the interview's dialogue-topic prompt (see questionPromptFor in the
+        # frontend's BackendScenarioAdapter), making every witness's first question button read
+        # identically instead of showing the real, distinguishing question that follows.
+        "Interview note: witness was asked at the outset to describe only what they personally observed.",
     ]
     for fact in request.facts:
         if fact.id == "fact_exculpated_alibi":
