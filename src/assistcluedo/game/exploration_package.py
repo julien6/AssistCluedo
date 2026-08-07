@@ -49,6 +49,27 @@ class ExplorationDevice:
 
 
 @dataclass(frozen=True)
+class ExplorationObject:
+    """A physical world object (e.g. the murder weapon) placed in a location — decorative-only
+    for now: the exploration map renders it as a prop in its room, but it isn't yet a separate
+    interactive/examinable entity (that would need its own interaction wiring, tracked as a
+    follow-up rather than bundled into this map-realism pass)."""
+
+    id: str
+    name: str
+    object_type: str
+    location_id: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "objectType": self.object_type,
+            "locationId": self.location_id,
+        }
+
+
+@dataclass(frozen=True)
 class InteractiveSource:
     id: str
     source_type: str
@@ -73,6 +94,7 @@ class ExplorationPackage:
     locations: list[ExplorationLocation]
     travel_edges: list[ExplorationTravelEdge]
     devices: list[ExplorationDevice]
+    objects: list[ExplorationObject]
     interactive_sources: list[InteractiveSource]
 
     def to_dict(self) -> dict[str, object]:
@@ -80,6 +102,7 @@ class ExplorationPackage:
             "locations": [item.to_dict() for item in self.locations],
             "travelEdges": [item.to_dict() for item in self.travel_edges],
             "devices": [item.to_dict() for item in self.devices],
+            "objects": [item.to_dict() for item in self.objects],
             "interactiveSources": [item.to_dict() for item in self.interactive_sources],
         }
 
@@ -108,6 +131,12 @@ def build_exploration_package(scenario: Scenario) -> ExplorationPackage:
             owner_character_id=device.owner_character_id,
         )
         for device in world.devices
+    ]
+
+    objects = [
+        ExplorationObject(id=obj.id, name=obj.name, object_type=obj.object_type, location_id=obj.location_id)
+        for obj in world.objects
+        if obj.location_id is not None
     ]
 
     plan_by_id = {plan.id: plan for plan in scenario.document_plans}
@@ -141,5 +170,6 @@ def build_exploration_package(scenario: Scenario) -> ExplorationPackage:
         locations=locations,
         travel_edges=travel_edges,
         devices=devices,
+        objects=objects,
         interactive_sources=[grouped[key] for key in order],
     )
