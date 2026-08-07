@@ -478,7 +478,7 @@ def _witness_lines(request: TextGenerationRequest, facts: dict[str, Fact], rng: 
                 f"Witness: I noticed {entity_name(request.world, fact.subject)} near the corridor outside {entity_name(request.world, request.truth.location_id)} at about {_time(fact)}."
             )
             rows.append(
-                "Detective: Passing through, or leaving?"
+                "Detective: Hi! What can you say about the case?"
             )
             rows.append(
                 "Witness: Leaving, I think. They turned away when they saw me."
