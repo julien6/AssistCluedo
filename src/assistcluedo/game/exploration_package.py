@@ -10,9 +10,10 @@ class ExplorationLocation:
     id: str
     name: str
     location_type: str
+    access: str = "public"
 
     def to_dict(self) -> dict[str, object]:
-        return {"id": self.id, "name": self.name, "locationType": self.location_type}
+        return {"id": self.id, "name": self.name, "locationType": self.location_type, "access": self.access}
 
 
 @dataclass(frozen=True)
@@ -86,7 +87,12 @@ class ExplorationPackage:
 def build_exploration_package(scenario: Scenario) -> ExplorationPackage:
     world = scenario.world
     locations = [
-        ExplorationLocation(id=location.id, name=location.name, location_type=location.location_type)
+        ExplorationLocation(
+            id=location.id,
+            name=location.name,
+            location_type=location.location_type,
+            access=str(location.attributes.get("access", "public")),
+        )
         for location in world.locations
     ]
     travel_edges = [
