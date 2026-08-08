@@ -28,7 +28,20 @@ class WorldGenerator:
         )
         selected_locations = _select_required_plus_random(
             pack.locations,
-            ["entrance_hall", "kitchen", "pantry", "dining_room", "office", "library"],
+            # Every difficulty guarantees one representative of each distinct room theme the
+            # exploration map renders (see frontend/.../game/map/room-blueprints.ts): entrance
+            # hall, kitchen, pantry, dining room, office, library, garage, garden and the
+            # servants' hall each get their own furniture/texture treatment there, so leaving any
+            # of them to chance meant some scenarios (especially "easy", whose location count used
+            # to equal the old required-list length) never showed several of those themes at all.
+            # conservatory, security_office and archive are left out of the required set on purpose: they reuse
+            # the office and library blueprints respectively, so they don't need a guaranteed slot
+            # to still read as themed when the random pool does pick them. conservatory *is*
+            # required despite reusing garden's blueprint too — it's the only travel_edges link
+            # (pack.yaml) between the entrance-hall cluster and garden; without it selected,
+            # garden's only path in is the far side via servants_hall→garage (12 min), which blew
+            # past easy's travel-time budget in validation.
+            ["entrance_hall", "kitchen", "pantry", "dining_room", "office", "library", "garage", "garden", "servants_hall", "conservatory"],
             difficulty.locations,
             rng,
         )
